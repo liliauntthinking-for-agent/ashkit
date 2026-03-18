@@ -1,5 +1,3 @@
-import asyncio
-import json
 import logging
 import subprocess
 from pathlib import Path
@@ -85,7 +83,7 @@ class EditTool(BaseTool):
                 return f"File not found: {path}"
             content = file_path.read_text(encoding="utf-8")
             if old not in content:
-                return f"Pattern not found in file"
+                return "Pattern not found in file"
             new_content = content.replace(old, new)
             file_path.write_text(new_content, encoding="utf-8")
             return f"Edited {path}"

@@ -85,7 +85,7 @@ async def create_agent(agent: AgentCreate):
     if agent.agent_id in agents_store:
         raise HTTPException(status_code=400, detail="Agent already exists")
 
-    agent_obj = await get_or_create_agent(agent.agent_id)
+    await get_or_create_agent(agent.agent_id)
 
     return {"agent_id": agent.agent_id, "status": "active"}
 
@@ -137,7 +137,7 @@ async def list_sessions(agent_id: str | None = None):
 
 @app.post("/api/sessions")
 async def create_session(session: SessionCreate):
-    agent = await get_or_create_agent(session.agent_id)
+    await get_or_create_agent(session.agent_id)
 
     return {
         "session_id": session.session_id,

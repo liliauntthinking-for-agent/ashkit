@@ -1,8 +1,8 @@
-import asyncio
-import json
 import logging
 from pathlib import Path
-from typing import Any
+
+import faiss
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +137,6 @@ class MemoryL3:
         return self._conn
 
     def add_memory(self, user_id: str, content: str, embedding: list[float]):
-        import numpy as np
-
         conn = self._get_conn()
         embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
         conn.execute(
@@ -146,8 +144,6 @@ class MemoryL3:
             (user_id, content, embedding_bytes),
         )
         conn.commit()
-
-        import numpy as np
 
         vec = np.array([embedding], dtype=np.float32)
         self.index.add(vec)
@@ -158,8 +154,6 @@ class MemoryL3:
     def search(
         self, user_id: str, query_embedding: list[float], top_k: int = 5
     ) -> list[dict]:
-        import numpy as np
-
         if self.index.ntotal == 0:
             return []
 
@@ -217,7 +211,7 @@ class MemoryManager:
                 0,
                 {
                     "role": "system",
-                    "content": f"Previous conversation summaries:\\n"
+                    "content": "Previous conversation summaries:\\n"
                     + "\\n".join(e["summary"] for e in recent_episodes),
                 },
             )
@@ -233,7 +227,7 @@ class MemoryManager:
                         0,
                         {
                             "role": "system",
-                            "content": f"User preferences and past memories:\\n"
+                            "content": "User preferences and past memories:\\n"
                             + "\\n".join(m["content"] for m in memories),
                         },
                     )

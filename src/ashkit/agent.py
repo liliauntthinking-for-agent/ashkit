@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -52,7 +51,6 @@ class LLMClient:
 
     async def get_embedding(self, text: str) -> list[float]:
         import httpx
-        import numpy as np
 
         provider_config = self.config.get("providers", {}).get("custom", {})
         api_key = provider_config.get("apiKey", "")

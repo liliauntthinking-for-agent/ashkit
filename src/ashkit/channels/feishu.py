@@ -1,7 +1,6 @@
-import asyncio
 import json
 import logging
-from typing import Any, Callable
+from typing import Callable
 import httpx
 import websockets
 from websockets.client import WebSocketClientProtocol
