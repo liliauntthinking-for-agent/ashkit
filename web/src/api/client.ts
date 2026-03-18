@@ -10,6 +10,14 @@ interface Provider {
 interface Agent {
   agent_id: string;
   status: string;
+  provider?: string;
+  model?: string;
+}
+
+interface Session {
+  session_id: string;
+  agent_id: string;
+  message_count: number;
 }
 
 interface Message {
@@ -68,10 +76,15 @@ export async function getAgents(): Promise<Agent[]> {
   return res.json();
 }
 
+export async function getAgent(agentId: string): Promise<Agent> {
+  const res = await fetch(`${API_BASE}/api/agents/${agentId}`);
+  return res.json();
+}
+
 export async function createAgent(data: {
   agent_id: string;
-  model?: string;
-  provider?: string;
+  model: string;
+  provider: string;
 }): Promise<void> {
   const res = await fetch(`${API_BASE}/api/agents`, {
     method: 'POST',
@@ -88,12 +101,33 @@ export async function deleteAgent(agentId: string): Promise<void> {
   await fetch(`${API_BASE}/api/agents/${agentId}`, { method: 'DELETE' });
 }
 
+export async function getSessions(agentId?: string): Promise<Session[]> {
+  const url = agentId 
+    ? `${API_BASE}/api/sessions?agent_id=${encodeURIComponent(agentId)}`
+    : `${API_BASE}/api/sessions`;
+  const res = await fetch(url);
+  return res.json();
+}
+
+export async function getSession(sessionId: string): Promise<{
+  session_id: string;
+  agent_id: string;
+  messages: Message[];
+}> {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`);
+  return res.json();
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
 export async function sendMessage(
-  agentId: string,
+  sessionId: string,
   message: string,
   stream: boolean
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/sessions/${agentId}/messages`, {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: message, stream }),
@@ -103,10 +137,10 @@ export async function sendMessage(
 }
 
 export async function* streamMessage(
-  agentId: string,
+  sessionId: string,
   message: string
 ): AsyncGenerator<string> {
-  const res = await fetch(`${API_BASE}/api/sessions/${agentId}/messages`, {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: message, stream: true }),

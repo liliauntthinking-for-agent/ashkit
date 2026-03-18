@@ -315,13 +315,13 @@ async def generate_response(
     try:
         db.add_message(session_id, "user", message)
         
-        response = await agent.process_message(session_id, message)
+        full_response = ""
+        async for chunk in agent.process_message_stream(session_id, message):
+            full_response += chunk
+            yield f"data: {json.dumps({'content': chunk})}\n\n"
+
+        db.add_message(session_id, "assistant", full_response)
         
-        db.add_message(session_id, "assistant", response)
-
-        for char in response:
-            yield f"data: {json.dumps({'content': char})}\n\n"
-
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     except Exception as e:

@@ -1,6 +1,7 @@
+import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,10 @@ class LLMClient:
 
     async def chat(self, messages: list[dict]) -> str:
         return await self._custom_chat(messages)
+
+    async def chat_stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
+        async for chunk in self._custom_chat_stream(messages):
+            yield chunk
 
     async def _custom_chat(self, messages: list[dict]) -> str:
         import httpx
@@ -57,6 +62,62 @@ class LLMClient:
                 return f"Error: {resp.status_code}"
             data = resp.json()
             return data["choices"][0]["message"]["content"]
+
+    async def _custom_chat_stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
+        import httpx
+
+        if not self.provider:
+            yield "Error: No provider configured."
+            return
+        
+        if not self.model:
+            yield "Error: No model configured."
+            return
+        
+        provider_config = self.config.get("providers", {}).get(self.provider, {})
+        api_key = provider_config.get("apiKey", "")
+        api_base = provider_config.get("apiBase", "")
+        
+        if not api_base:
+            yield f"Error: Provider '{self.provider}' has no apiBase configured."
+            return
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{api_base.rstrip('/')}/chat/completions",
+                headers=headers,
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": True,
+                },
+                timeout=120.0,
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    yield f"Error: {response.status_code}"
+                    return
+                
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            if "choices" in data and len(data["choices"]) > 0:
+                                delta = data["choices"][0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+                        except json.JSONDecodeError:
+                            continue
 
     async def get_embedding(self, text: str) -> list[float]:
         import httpx
@@ -133,6 +194,25 @@ class Agent:
         self.memory.add_message("assistant", response)
 
         return response
+
+    async def process_message_stream(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
+        await self.initialize()
+
+        context = await self.memory.get_context(self.agent_id, user_id, self.llm)
+
+        system_prompt = self._build_system_prompt()
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(context)
+        messages.append({"role": "user", "content": message})
+
+        self.memory.add_message("user", message)
+        
+        full_response = ""
+        async for chunk in self.llm.chat_stream(messages):
+            full_response += chunk
+            yield chunk
+        
+        self.memory.add_message("assistant", full_response)
 
     def _build_system_prompt(self) -> str:
         prompt = "You are a helpful AI assistant."

@@ -5,47 +5,47 @@ import { Chat } from './components/Chat';
 import { Memory } from './components/Memory';
 import './App.css';
 
-type Tab = 'providers' | 'agents' | 'chat' | 'memory';
+type Tab = 'chat' | 'providers' | 'agents' | 'memory';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('providers');
+  const [activeTab, setActiveTab] = useState<Tab>('chat');
 
   return (
     <div className="app">
       <header className="header">
-        <h1>Ashkit 管理后台</h1>
+        <h1>Ashkit</h1>
         <nav className="nav">
+          <a
+            className={activeTab === 'chat' ? 'active' : ''}
+            onClick={() => setActiveTab('chat')}
+          >
+            对话
+          </a>
           <a
             className={activeTab === 'providers' ? 'active' : ''}
             onClick={() => setActiveTab('providers')}
           >
-            Provider 管理
+            Provider
           </a>
           <a
             className={activeTab === 'agents' ? 'active' : ''}
             onClick={() => setActiveTab('agents')}
           >
-            Agent 管理
-          </a>
-          <a
-            className={activeTab === 'chat' ? 'active' : ''}
-            onClick={() => setActiveTab('chat')}
-          >
-            对话测试
+            Agent
           </a>
           <a
             className={activeTab === 'memory' ? 'active' : ''}
             onClick={() => setActiveTab('memory')}
           >
-            记忆查看
+            记忆
           </a>
         </nav>
       </header>
 
       <main className="container">
+        {activeTab === 'chat' && <Chat />}
         {activeTab === 'providers' && <Providers />}
         {activeTab === 'agents' && <Agents />}
-        {activeTab === 'chat' && <Chat />}
         {activeTab === 'memory' && <Memory />}
       </main>
     </div>
