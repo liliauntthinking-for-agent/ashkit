@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from './Toast';
 import * as api from '../api/client';
 
 interface Provider {
@@ -16,6 +17,7 @@ interface AgentsProps {
 }
 
 export function Agents({ onAgentsChange }: AgentsProps) {
+  const showToast = useToast();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [formData, setFormData] = useState({
@@ -45,15 +47,15 @@ export function Agents({ onAgentsChange }: AgentsProps) {
 
   const handleCreate = async () => {
     if (!formData.agent_id.trim()) {
-      alert('请输入 Agent ID');
+      showToast('请输入 Agent ID', 'error');
       return;
     }
     if (!formData.provider) {
-      alert('请选择 Provider');
+      showToast('请选择 Provider', 'error');
       return;
     }
     if (!formData.model) {
-      alert('请选择模型');
+      showToast('请选择模型', 'error');
       return;
     }
     try {
@@ -65,9 +67,9 @@ export function Agents({ onAgentsChange }: AgentsProps) {
       setFormData({ agent_id: '', provider: '', model: '' });
       loadData();
       onAgentsChange?.();
-      alert('创建成功！');
+      showToast('创建成功');
     } catch (e: any) {
-      alert(e.message);
+      showToast(e.message, 'error');
     }
   };
 
@@ -76,6 +78,7 @@ export function Agents({ onAgentsChange }: AgentsProps) {
     await api.deleteAgent(agentId);
     loadData();
     onAgentsChange?.();
+    showToast('已删除');
   };
 
   return (

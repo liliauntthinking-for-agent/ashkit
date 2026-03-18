@@ -109,6 +109,15 @@ export async function getSessions(agentId?: string): Promise<Session[]> {
   return res.json();
 }
 
+export async function createSession(agentId: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: '', agent_id: agentId }),
+  });
+  return res.json();
+}
+
 export async function getSession(sessionId: string): Promise<{
   session_id: string;
   agent_id: string;

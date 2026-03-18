@@ -280,10 +280,13 @@ async def create_session(session: SessionCreate):
     if not db.get_agent(session.agent_id):
         raise HTTPException(status_code=404, detail="Agent not found")
     
-    db.create_session(session.session_id, session.agent_id)
+    import uuid
+    session_id = f"{session.agent_id}-{uuid.uuid4().hex[:8]}"
+    
+    db.create_session(session_id, session.agent_id)
     
     return {
-        "session_id": session.session_id,
+        "session_id": session_id,
         "agent_id": session.agent_id,
         "status": "active",
     }
@@ -409,7 +412,7 @@ async def catch_all(path: str):
     raise HTTPException(status_code=404, detail="Not found")
 
 
-def run_server(host: str = "127.0.0.1", port: int = 47291):
+def run_server(host: str = "0.0.0.0", port: int = 47291):
     import uvicorn
 
     uvicorn.run(app, host=host, port=port)

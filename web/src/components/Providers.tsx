@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from './Toast';
 import * as api from '../api/client';
 
 interface Provider {
@@ -9,6 +10,7 @@ interface Provider {
 }
 
 export function Providers() {
+  const showToast = useToast();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [formData, setFormData] = useState({
     name: '',
@@ -33,7 +35,7 @@ export function Providers() {
 
   const handleCreate = async () => {
     if (!formData.name.trim()) {
-      alert('请输入 Provider 名称');
+      showToast('请输入 Provider 名称', 'error');
       return;
     }
     try {
@@ -49,9 +51,9 @@ export function Providers() {
       });
       setFormData({ name: '', api_base: '', api_key: '', models: '' });
       loadProviders();
-      alert('添加成功！');
+      showToast('添加成功');
     } catch (e: any) {
-      alert(e.message);
+      showToast(e.message, 'error');
     }
   };
 
@@ -59,20 +61,21 @@ export function Providers() {
     if (!confirm('确定删除此 Provider?')) return;
     await api.deleteProvider(name);
     loadProviders();
+    showToast('已删除');
   };
 
   const handleAddModel = async () => {
     if (!newModel.provider || !newModel.model.trim()) {
-      alert('请选择 Provider 并输入模型名称');
+      showToast('请选择 Provider 并输入模型名称', 'error');
       return;
     }
     try {
       await api.addModel(newModel.provider, newModel.model.trim());
       setNewModel({ provider: '', model: '' });
       loadProviders();
-      alert('添加成功！');
+      showToast('添加成功');
     } catch (e: any) {
-      alert(e.message);
+      showToast(e.message, 'error');
     }
   };
 

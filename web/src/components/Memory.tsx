@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from './Toast';
 import * as api from '../api/client';
 
 interface Agent {
@@ -13,6 +14,7 @@ interface MemoryData {
 }
 
 export function Memory() {
+  const showToast = useToast();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState('');
   const [memoryData, setMemoryData] = useState<MemoryData | null>(null);
@@ -34,33 +36,33 @@ export function Memory() {
 
   const handleLoadMemory = async () => {
     if (!selectedAgent) {
-      alert('请选择 Agent');
+      showToast('请选择 Agent', 'error');
       return;
     }
     try {
       const data = await api.getMemory(selectedAgent);
       setMemoryData(data);
     } catch (e: any) {
-      alert('加载失败: ' + e.message);
+      showToast('加载失败: ' + e.message, 'error');
     }
   };
 
   const handleAddL3 = async () => {
     if (!selectedAgent) {
-      alert('请选择 Agent');
+      showToast('请选择 Agent', 'error');
       return;
     }
     if (!l3Content.trim()) {
-      alert('请输入内容');
+      showToast('请输入内容', 'error');
       return;
     }
     try {
       await api.addL3Memory(selectedAgent, l3Content.trim());
       setL3Content('');
       handleLoadMemory();
-      alert('保存成功');
+      showToast('保存成功');
     } catch (e: any) {
-      alert('保存失败: ' + e.message);
+      showToast('保存失败: ' + e.message, 'error');
     }
   };
 

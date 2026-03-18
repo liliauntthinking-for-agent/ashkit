@@ -39,7 +39,7 @@ def run_web(config):
     from ashkit.web import app
     import uvicorn
 
-    host = config.get("web.host", "127.0.0.1")
+    host = config.get("web.host", "0.0.0.0")
     port = config.get("web.port", 47291)
     uvicorn.run(app, host=host, port=port)
 

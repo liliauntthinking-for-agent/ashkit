@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useToast } from './Toast';
 import * as api from '../api/client';
 
 interface Agent {
@@ -20,14 +21,15 @@ interface Message {
 }
 
 export function Chat() {
+  const showToast = useToast();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [currentAgentId, setCurrentAgentId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streamMode, setStreamMode] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +64,7 @@ export function Chat() {
     try {
       const session = await api.getSession(sessionId);
       setSelectedSession(sessionId);
-      setSelectedAgent(session.agent_id);
+      setCurrentAgentId(session.agent_id);
       setMessages(session.messages || []);
       setShowNewSession(false);
     } catch (e) {
@@ -76,6 +78,7 @@ export function Chat() {
     
     await api.deleteSession(sessionId);
     loadSessions();
+    showToast('已删除');
     
     if (selectedSession === sessionId) {
       setSelectedSession(null);
@@ -87,46 +90,49 @@ export function Chat() {
     setShowNewSession(true);
     setSelectedSession(null);
     setMessages([]);
+    setCurrentAgentId('');
   };
 
-  const handleCreateSession = () => {
-    if (!selectedAgent) {
-      alert('请选择 Agent');
+  const handleCreateSession = async () => {
+    if (!currentAgentId) {
+      showToast('请选择 Agent', 'error');
       return;
     }
-    setShowNewSession(false);
-    setSelectedSession(selectedAgent);
-    loadSessions();
+    
+    try {
+      const session = await api.createSession(currentAgentId);
+      setSelectedSession(session.session_id);
+      setShowNewSession(false);
+      setMessages([]);
+      loadSessions();
+      showToast('会话已创建');
+    } catch (e: any) {
+      showToast('创建会话失败: ' + e.message, 'error');
+    }
   };
 
   const handleSend = async () => {
-    let sessionId = selectedSession;
-    
-    if (!sessionId) {
-      if (!selectedAgent) {
-        alert('请选择 Agent');
-        return;
-      }
-      sessionId = selectedAgent;
-      setSelectedSession(sessionId);
+    if (!selectedSession) {
+      showToast('请先创建会话', 'error');
+      return;
     }
 
     if (!input.trim()) {
-      alert('请输入消息');
+      showToast('请输入消息', 'error');
       return;
     }
 
     const userMessage = input.trim();
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
-    setLoading(true);
+    setLoadingSessions((prev) => new Set(prev).add(selectedSession));
 
     try {
       if (streamMode) {
         let responseText = '';
         setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
 
-        for await (const chunk of api.streamMessage(sessionId!, userMessage)) {
+        for await (const chunk of api.streamMessage(selectedSession, userMessage)) {
           responseText += chunk;
           setMessages((prev) => {
             const updated = [...prev];
@@ -135,18 +141,19 @@ export function Chat() {
           });
         }
       } else {
-        const response = await api.sendMessage(sessionId, userMessage, false);
+        const response = await api.sendMessage(selectedSession, userMessage, false);
         setMessages((prev) => [...prev, { role: 'assistant', content: response }]);
       }
       
       loadSessions();
     } catch (e: any) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Error: ' + e.message },
-      ]);
+      showToast('Error: ' + e.message, 'error');
     } finally {
-      setLoading(false);
+      setLoadingSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(selectedSession);
+        return next;
+      });
     }
   };
 
@@ -156,6 +163,8 @@ export function Chat() {
       handleSend();
     }
   };
+
+  const isLoading = selectedSession ? loadingSessions.has(selectedSession) : false;
 
   return (
     <div className="chat-container">
@@ -199,8 +208,8 @@ export function Chat() {
             <div className="form-group">
               <label>选择 Agent</label>
               <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
+                value={currentAgentId}
+                onChange={(e) => setCurrentAgentId(e.target.value)}
               >
                 <option value="">请选择 Agent</option>
                 {agents.map((a) => (
@@ -260,12 +269,12 @@ export function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={loading || !selectedSession && !selectedAgent}
+                disabled={isLoading || !selectedSession}
               />
               <button
                 className="btn btn-primary"
                 onClick={handleSend}
-                disabled={loading}
+                disabled={isLoading || !selectedSession}
               >
                 发送
               </button>
