@@ -1,42 +1,50 @@
 # Ashkit
 
-Lightweight personal AI assistant with Feishu, Memory, MCP and Skills.
+轻量级个人 AI 助手，支持飞书、三层记忆系统、MCP 和技能扩展。
 
-## Features
+## 功能特性
 
-- **Multi-channel Support**: Feishu bot integration
-- **Three-layer Memory System**: L1 working memory, L2 episodic memory, L3 semantic memory with FAISS
-- **Skills System**: Dynamic skill loading from workspace
-- **Tools**: Bash, Read, Write, Edit, MCP tools
-- **Web API**: RESTful API with Web UI
+- **多渠道支持**: 飞书机器人集成
+- **三层记忆系统**: L1 工作记忆、L2 情景记忆、L3 语义记忆（FAISS 向量检索）
+- **技能系统**: 从工作空间动态加载技能
+- **工具集成**: Bash、Read、Write、Edit、MCP 工具
+- **Web 管理界面**: React + TypeScript 构建的管理后台
+- **Provider 管理**: 可视化管理模型提供商和模型
 
-## Installation
+## 安装
 
 ```bash
-# Clone the repository
+# 克隆仓库
 git clone <repo-url>
 cd ashkit
 
-# Install dependencies with uv
+# 使用 uv 安装依赖
 uv sync
+
+# 安装前端依赖并构建
+cd web && npm install && npm run build && cd ..
 ```
 
-## Configuration
+## 配置
 
-Create a config file at `~/.ashkit/config.json` or use the example:
-
-```bash
-cp config.example.json ~/.ashkit/config.json
-```
-
-Edit the configuration:
+创建配置文件 `~/.ashkit/config.json`：
 
 ```json
 {
   "providers": {
     "custom": {
-      "apiKey": "your-api-key-here",
-      "apiBase": "https://api.openai.com/v1"
+      "apiKey": "your-api-key",
+      "apiBase": "https://api.openai.com/v1",
+      "models": ["gpt-4o", "gpt-4o-mini"]
+    }
+  },
+  "channels": {
+    "feishu": {
+      "enabled": false,
+      "app_id": "",
+      "app_secret": "",
+      "encrypt_key": "",
+      "verification_token": ""
     }
   },
   "agents": {
@@ -46,82 +54,136 @@ Edit the configuration:
       "workspace": "~/.ashkit/workspace"
     }
   },
+  "memory": {
+    "l1_max_tokens": 64000,
+    "l2_retention": 100,
+    "l3_enabled": true
+  },
   "gateway": {
     "host": "127.0.0.1",
-    "port": 18789
+    "port": 38471
+  },
+  "web": {
+    "host": "127.0.0.1",
+    "port": 47291
   }
 }
 ```
 
-## Usage
+## 使用方法
 
-### Web Server
-
-Start the web server with Web UI:
+### 启动 Web 服务
 
 ```bash
 uv run python -m ashkit web
 ```
 
-Access the Web UI at http://localhost:8080
+访问 http://127.0.0.1:47291 打开管理后台。
 
-### Gateway Mode
-
-Connect to Feishu:
+### 网关模式（飞书）
 
 ```bash
 uv run python -m ashkit gateway
 ```
 
-### CLI Agent
-
-Interactive command-line agent:
+### 命令行模式
 
 ```bash
 uv run python -m ashkit agent
 ```
 
-### Custom Config Path
+### 指定配置文件
 
 ```bash
 uv run python -m ashkit web --config /path/to/config.json
 uv run python -m ashkit gateway --workspace ~/.ashkit/workspace
 ```
 
-## API Endpoints
+## Web 管理界面
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/agents` | List all agents |
-| POST | `/api/agents` | Create an agent |
-| GET | `/api/agents/{id}` | Get agent info |
-| PATCH | `/api/agents/{id}` | Update agent |
-| DELETE | `/api/agents/{id}` | Delete agent |
-| GET | `/api/sessions` | List sessions |
-| POST | `/api/sessions/{id}/messages` | Send message |
-| GET | `/api/memory/{id}` | Get agent memory |
-| POST | `/api/memory/{id}/l3` | Add semantic memory |
+### Provider 管理
 
-## Memory System
+- 添加/删除模型提供商
+- 配置 API Key 和 Base URL
+- 管理提供商下的模型列表
 
-### L1 - Working Memory
-- Current conversation context
-- In-memory storage
-- Configurable token limit (default: 64000)
+### Agent 管理
 
-### L2 - Episodic Memory
-- Historical conversation summaries
-- SQLite storage
-- Automatic summarization
+- 从已配置的 Provider 和模型中选择创建 Agent
+- 查看和管理 Agent 状态
 
-### L3 - Semantic Memory
-- Long-term knowledge storage
-- FAISS vector index
-- Automatic embedding
+### 对话测试
 
-## Skills
+- 与 Agent 进行对话测试
+- 支持流式响应
 
-Place skill directories in `~/.ashkit/workspace/skills/` with a `SKILL.md` file:
+### 记忆查看
+
+- 查看 L1 短期记忆
+- 查看 L2 情景记忆
+- 查看 L3 语义记忆
+- 手动添加语义记忆
+
+## API 接口
+
+### Provider 管理
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/providers` | 获取所有 Provider |
+| POST | `/api/providers` | 创建 Provider |
+| GET | `/api/providers/{name}` | 获取单个 Provider |
+| PATCH | `/api/providers/{name}` | 更新 Provider |
+| DELETE | `/api/providers/{name}` | 删除 Provider |
+| GET | `/api/providers/{name}/models` | 获取 Provider 的模型列表 |
+| POST | `/api/providers/{name}/models` | 添加模型 |
+| DELETE | `/api/providers/{name}/models/{model}` | 删除模型 |
+
+### Agent 管理
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/agents` | 获取所有 Agent |
+| POST | `/api/agents` | 创建 Agent |
+| GET | `/api/agents/{id}` | 获取 Agent 信息 |
+| PATCH | `/api/agents/{id}` | 更新 Agent |
+| DELETE | `/api/agents/{id}` | 删除 Agent |
+
+### 会话管理
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/sessions` | 获取会话列表 |
+| POST | `/api/sessions` | 创建会话 |
+| POST | `/api/sessions/{id}/messages` | 发送消息（支持流式） |
+
+### 记忆管理
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/memory/{agent_id}` | 获取 Agent 记忆 |
+| POST | `/api/memory/{agent_id}/l3` | 添加语义记忆 |
+
+## 记忆系统
+
+### L1 - 工作记忆
+- 当前对话上下文
+- 内存存储
+- 可配置 token 限制（默认 64000）
+
+### L2 - 情景记忆
+- 历史对话摘要
+- SQLite 存储
+- 自动摘要压缩
+
+### L3 - 语义记忆
+- 长期知识存储
+- FAISS 向量索引
+- 自动向量化
+
+## 技能系统
+
+将技能目录放在 `~/.ashkit/workspace/skills/` 下，每个技能包含 `SKILL.md` 文件：
 
 ```
 skills/
@@ -131,26 +193,45 @@ skills/
     └── SKILL.md
 ```
 
-## Project Structure
+## 前端开发
+
+```bash
+cd web
+
+# 开发模式
+npm run dev
+
+# 构建
+npm run build
+```
+
+## 项目结构
 
 ```
 ashkit/
 ├── src/ashkit/
-│   ├── __init__.py      # Entry point
-│   ├── __main__.py      # CLI handler
-│   ├── agent.py         # Core agent + LLM client
-│   ├── config.py        # Configuration management
-│   ├── gateway.py       # Multi-agent gateway
-│   ├── memory.py        # L1/L2/L3 memory system
-│   ├── skills.py        # Skill loader
-│   ├── tools.py         # Tool implementations
-│   ├── web.py           # FastAPI web server
-│   └── channels/
-│       └── feishu.py    # Feishu channel
-├── config.example.json  # Example configuration
-└── pyproject.toml       # Project metadata
+│   ├── __init__.py      # 入口点
+│   ├── __main__.py      # CLI 处理
+│   ├── agent.py         # Agent 核心 + LLM 客户端
+│   ├── config.py        # 配置管理
+│   ├── gateway.py       # 多 Agent 网关
+│   ├── memory.py        # L1/L2/L3 记忆系统
+│   ├── skills.py        # 技能加载器
+│   ├── tools.py         # 工具实现
+│   ├── web.py           # FastAPI Web 服务
+│   ├── channels/
+│   │   └── feishu.py    # 飞书渠道
+│   └── web/dist/        # 前端构建产物
+├── web/                 # React 前端项目
+│   ├── src/
+│   │   ├── api/         # API 客户端
+│   │   ├── components/  # React 组件
+│   │   └── App.tsx      # 主应用
+│   └── vite.config.ts   # Vite 配置
+├── config.example.json  # 配置示例
+└── pyproject.toml       # 项目元数据
 ```
 
-## License
+## 许可证
 
 MIT

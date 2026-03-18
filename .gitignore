@@ -27,3 +27,4 @@ wheels/
 env/
 venv/
 .env.local
+.history/

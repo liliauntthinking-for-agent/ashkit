@@ -28,7 +28,11 @@ DEFAULT_CONFIG = {
     },
     "gateway": {
         "host": "127.0.0.1",
-        "port": 18789,
+        "port": 38471,
+    },
+    "web": {
+        "host": "127.0.0.1",
+        "port": 47291,
     },
 }
 

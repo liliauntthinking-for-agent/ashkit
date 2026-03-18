@@ -1,8 +1,8 @@
 {
   "providers": {
     "custom": {
-      "apiKey": "test-key",
-      "apiBase": "https://api.openai.com/v1"
+      "apiKey": "sk-sp-a62127a2bab847628ec98552d6d51a18",
+      "apiBase": "https://coding.dashscope.aliyuncs.com/v1"
     }
   },
   "channels": {
@@ -12,7 +12,7 @@
   },
   "agents": {
     "defaults": {
-      "model": "gpt-4o-mini",
+      "model": "glm-5",
       "provider": "custom",
       "workspace": "~/.ashkit/workspace"
     }

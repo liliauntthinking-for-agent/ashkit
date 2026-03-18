@@ -11,21 +11,30 @@ class LLMClient:
     def __init__(self, config: dict):
         self.config = config
         self.model = config.get("model", "")
-        self.provider = config.get("provider", "custom")
+        self.provider = config.get("provider", "")
         self._client = None
 
     async def chat(self, messages: list[dict]) -> str:
-        if self.provider == "custom":
-            return await self._custom_chat(messages)
-        else:
-            raise NotImplementedError(f"Provider {self.provider} not implemented")
+        return await self._custom_chat(messages)
 
     async def _custom_chat(self, messages: list[dict]) -> str:
         import httpx
 
-        provider_config = self.config.get("providers", {}).get("custom", {})
+        if not self.provider:
+            logger.error("No provider configured")
+            return "Error: No provider configured. Please select a provider when creating the agent."
+        
+        if not self.model:
+            logger.error("No model configured")
+            return "Error: No model configured. Please select a model when creating the agent."
+        
+        provider_config = self.config.get("providers", {}).get(self.provider, {})
         api_key = provider_config.get("apiKey", "")
         api_base = provider_config.get("apiBase", "")
+        
+        if not api_base:
+            logger.error(f"No apiBase configured for provider: {self.provider}")
+            return f"Error: Provider '{self.provider}' has no apiBase configured"
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -52,7 +61,7 @@ class LLMClient:
     async def get_embedding(self, text: str) -> list[float]:
         import httpx
 
-        provider_config = self.config.get("providers", {}).get("custom", {})
+        provider_config = self.config.get("providers", {}).get(self.provider, {})
         api_key = provider_config.get("apiKey", "")
         api_base = provider_config.get("apiBase", "")
 

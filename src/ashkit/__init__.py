@@ -39,8 +39,9 @@ def run_web(config):
     from ashkit.web import app
     import uvicorn
 
-    port = config.get("gateway.port", 8080)
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    host = config.get("web.host", "127.0.0.1")
+    port = config.get("web.port", 47291)
+    uvicorn.run(app, host=host, port=port)
 
 
 async def run_gateway(config):
