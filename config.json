@@ -1,0 +1,29 @@
+{
+  "providers": {
+    "custom": {
+      "apiKey": "test-key",
+      "apiBase": "https://api.openai.com/v1"
+    }
+  },
+  "channels": {
+    "feishu": {
+      "enabled": false
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "gpt-4o-mini",
+      "provider": "custom",
+      "workspace": "~/.ashkit/workspace"
+    }
+  },
+  "memory": {
+    "l1_max_tokens": 64000,
+    "l2_retention": 100,
+    "l3_enabled": true
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18789
+  }
+}

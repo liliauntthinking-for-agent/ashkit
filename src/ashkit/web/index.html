@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ashkit 管理后台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+        .header { background: #fff; padding: 16px 24px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; color: #333; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { color: #666; text-decoration: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+        .nav a.active { background: #e3f2fd; color: #1976d2; }
+        .container { max-width: 1400px; margin: 24px auto; padding: 0 24px; }
+        .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card h2 { font-size: 16px; color: #333; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; color: #666; font-size: 14px; }
+        .form-group input, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; }
+        .form-group textarea { min-height: 80px; resize: vertical; }
+        .form-group input:focus, .form-group textarea:focus { outline: none; border-color: #1976d2; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #1976d2; color: #fff; }
+        .btn-primary:hover { background: #1565c0; }
+        .btn-secondary { background: #6c757d; color: #fff; }
+        .btn-danger { background: #dc3545; color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #fafafa; color: #666; font-weight: 500; font-size: 13px; }
+        td { font-size: 14px; color: #333; }
+        .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+        .status-active { background: #e8f5e9; color: #2e7d32; }
+        .actions { display: flex; gap: 8px; }
+        .empty { text-align: center; padding: 40px; color: #999; }
+        
+        .chat-container { display: flex; gap: 24px; }
+        .chat-list { width: 300px; flex-shrink: 0; }
+        .chat-main { flex: 1; }
+        .chat-messages { height: 400px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fafafa; }
+        .message { margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; max-width: 80%; }
+        .message-user { background: #e3f2fd; margin-left: auto; }
+        .message-assistant { background: #fff; border: 1px solid #eee; }
+        .message-role { font-size: 12px; color: #999; margin-bottom: 4px; }
+        .chat-input { display: flex; gap: 12px; }
+        .chat-input textarea { flex: 1; }
+        
+        .memory-section { margin-top: 24px; }
+        .memory-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .memory-tab { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; }
+        .memory-tab.active { background: #1976d2; color: #fff; border-color: #1976d2; }
+        .memory-content { background: #fafafa; padding: 16px; border-radius: 8px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Ashkit 管理后台</h1>
+        <div class="nav">
+            <a class="active" data-tab="agents">Agent 管理</a>
+            <a data-tab="chat">对话测试</a>
+            <a data-tab="memory">记忆查看</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="agents-tab">
+            <div class="card">
+                <h2>创建 Agent</h2>
+                <div class="form-group">
+                    <label>Agent ID</label>
+                    <input type="text" id="agent-id" placeholder="输入 Agent ID">
+                </div>
+                <div class="form-group">
+                    <label>模型</label>
+                    <input type="text" id="agent-model" placeholder="如: gpt-4o">
+                </div>
+                <div class="form-group">
+                    <label>Provider</label>
+                    <input type="text" id="agent-provider" placeholder="如: custom">
+                </div>
+                <button class="btn btn-primary" onclick="createAgent()">创建</button>
+            </div>
+
+            <div class="card">
+                <h2>Agent 列表</h2>
+                <table id="agents-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div class="empty" id="agents-empty">暂无 Agent</div>
+            </div>
+        </div>
+
+        <div id="chat-tab" style="display:none;">
+            <div class="card">
+                <h2>对话测试</h2>
+                <div class="form-group">
+                    <label>选择 Agent</label>
+                    <select id="chat-agent-select" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                        <option value="">请先创建 Agent</option>
+                    </select>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="empty">发送消息开始对话</div>
+                </div>
+                <div class="chat-input">
+                    <textarea id="chat-input" placeholder="输入消息..." rows="2"></textarea>
+                    <button class="btn btn-primary" onclick="sendChat()">发送</button>
+                </div>
+                <div style="margin-top:12px;">
+                    <label><input type="checkbox" id="stream-mode"> 流式响应</label>
+                </div>
+            </div>
+        </div>
+
+        <div id="memory-tab" style="display:none;">
+            <div class="card">
+                <h2>记忆查看</h2>
+                <div class="form-group">
+                    <label>选择 Agent</label>
+                    <select id="memory-agent-select" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                        <option value="">请先创建 Agent</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="loadMemory()">加载记忆</button>
+                
+                <div class="memory-section">
+                    <div class="memory-tabs">
+                        <button class="memory-tab active" data-layer="l1" onclick="switchMemoryLayer('l1')">L1 短期记忆</button>
+                        <button class="memory-tab" data-layer="l2" onclick="switchMemoryLayer('l2')">L2 情景记忆</button>
+                        <button class="memory-tab" data-layer="l3" onclick="switchMemoryLayer('l3')">L3 语义记忆</button>
+                    </div>
+                    <div class="memory-content" id="memory-content">
+                        选择 Agent 并加载记忆
+                    </div>
+                </div>
+                
+                <div class="form-group" style="margin-top:16px;">
+                    <label>添加语义记忆 (L3)</label>
+                    <textarea id="l3-content" placeholder="输入要保存的重要信息..."></textarea>
+                    <button class="btn btn-primary" style="margin-top:8px;" onclick="addL3Memory()">保存到 L3</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        let currentMemoryLayer = 'l1';
+        let memoryData = {};
+
+        document.querySelectorAll('.nav a').forEach(a => {
+            a.addEventListener('click', () => {
+                document.querySelectorAll('.nav a').forEach(x => x.classList.remove('active'));
+                a.classList.add('active');
+                const tab = a.dataset.tab;
+                document.getElementById('agents-tab').style.display = tab === 'agents' ? 'block' : 'none';
+                document.getElementById('chat-tab').style.display = tab === 'chat' ? 'block' : 'none';
+                document.getElementById('memory-tab').style.display = tab === 'memory' ? 'block' : 'none';
+                if (tab === 'chat' || tab === 'memory') loadAgents();
+            });
+        });
+
+        async function loadAgents() {
+            try {
+                const res = await fetch(API + '/api/agents');
+                const agents = await res.json();
+                
+                const chatSelect = document.getElementById('chat-agent-select');
+                const memSelect = document.getElementById('memory-agent-select');
+                
+                const options = '<option value="">选择 Agent</option>' + 
+                    agents.map(a => `<option value="${a.agent_id}">${a.agent_id}</option>`).join('');
+                
+                chatSelect.innerHTML = options;
+                memSelect.innerHTML = options;
+                
+                const tbody = document.querySelector('#agents-table tbody');
+                const empty = document.getElementById('agents-empty');
+                
+                if (agents.length === 0) {
+                    tbody.innerHTML = '';
+                    empty.style.display = 'block';
+                    return;
+                }
+                
+                empty.style.display = 'none';
+                tbody.innerHTML = agents.map(a => `
+                    <tr>
+                        <td>${a.agent_id}</td>
+                        <td><span class="status status-active">${a.status}</span></td>
+                        <td class="actions">
+                            <button class="btn btn-danger btn-sm" onclick="deleteAgent('${a.agent_id}')">删除</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch(e) { console.error(e); }
+        }
+
+        async function createAgent() {
+            const agent_id = document.getElementById('agent-id').value;
+            const model = document.getElementById('agent-model').value;
+            const provider = document.getElementById('agent-provider').value;
+            
+            if (!agent_id) return alert('请输入 Agent ID');
+
+            try {
+                const res = await fetch(API + '/api/agents', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({agent_id, model, provider})
+                });
+                if (res.ok) {
+                    document.getElementById('agent-id').value = '';
+                    loadAgents();
+                    alert('创建成功！现在可以开始对话测试');
+                } else {
+                    const data = await res.json();
+                    alert(data.detail || '创建失败');
+                }
+            } catch(e) { alert('创建失败: ' + e); }
+        }
+
+        async function deleteAgent(agent_id) {
+            if (!confirm('确定删除此 Agent?')) return;
+            try {
+                await fetch(API + '/api/agents/' + agent_id, {method: 'DELETE'});
+                loadAgents();
+            } catch(e) { alert('删除失败'); }
+        }
+
+        async function sendChat() {
+            const agent_id = document.getElementById('chat-agent-select').value;
+            const message = document.getElementById('chat-input').value;
+            const stream = document.getElementById('stream-mode').checked;
+            
+            if (!agent_id) return alert('请选择 Agent');
+            if (!message) return alert('请输入消息');
+
+            const messagesDiv = document.getElementById('chat-messages');
+            if (messagesDiv.querySelector('.empty')) messagesDiv.innerHTML = '';
+            
+            messagesDiv.innerHTML += `<div class="message message-user"><div class="message-role">You</div>${message}</div>`;
+            
+            const assistantDiv = document.createElement('div');
+            assistantDiv.className = 'message message-assistant';
+            assistantDiv.innerHTML = '<div class="message-role">Assistant</div><span class="typing">...</span>';
+            messagesDiv.appendChild(assistantDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
+            document.getElementById('chat-input').value = '';
+
+            try {
+                if (stream) {
+                    const res = await fetch(API + '/api/sessions/' + agent_id + '/messages', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({content: message, stream: true})
+                    });
+                    
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder();
+                    let responseText = '';
+                    
+                    while (true) {
+                        const {done, value} = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    if (data.content) {
+                                        responseText += data.content;
+                                        assistantDiv.querySelector('span').textContent = responseText;
+                                    }
+                                } catch(e) {}
+                            }
+                        }
+                    }
+                } else {
+                    const res = await fetch(API + '/api/sessions/' + agent_id + '/messages', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({content: message, stream: false})
+                    });
+                    const data = await res.json();
+                    assistantDiv.querySelector('span').textContent = data.response || '';
+                }
+            } catch(e) {
+                assistantDiv.querySelector('span').textContent = 'Error: ' + e;
+            }
+            
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function loadMemory() {
+            const agent_id = document.getElementById('memory-agent-select').value;
+            if (!agent_id) return alert('请选择 Agent');
+            
+            try {
+                const res = await fetch(API + '/api/memory/' + agent_id);
+                memoryData = await res.json();
+                switchMemoryLayer('l1');
+            } catch(e) {
+                alert('加载失败: ' + e);
+            }
+        }
+
+        function switchMemoryLayer(layer) {
+            currentMemoryLayer = layer;
+            document.querySelectorAll('.memory-tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.layer === layer);
+            });
+            
+            let content = '';
+            if (layer === 'l1') {
+                const msgs = memoryData.l1_working?.messages || [];
+                content = msgs.map(m => `[${m.role}]: ${m.content}`).join('\\n\\n') || '暂无记忆';
+            } else if (layer === 'l2') {
+                const episodes = memoryData.l2_episodic || [];
+                content = episodes.map(e => `[${e.created_at}]\\n${e.summary}`).join('\\n\\n') || '暂无记忆';
+            } else {
+                const semantic = memoryData.l3_semantic || [];
+                content = semantic.map(m => m.content).join('\\n\\n') || '暂无记忆';
+            }
+            
+            document.getElementById('memory-content').textContent = content;
+        }
+
+        async function addL3Memory() {
+            const agent_id = document.getElementById('memory-agent-select').value;
+            const content = document.getElementById('l3-content').value;
+            
+            if (!agent_id) return alert('请选择 Agent');
+            if (!content) return alert('请输入内容');
+
+            try {
+                await fetch(API + '/api/memory/' + agent_id + '/l3', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content})
+                });
+                document.getElementById('l3-content').value = '';
+                loadMemory();
+                alert('保存成功');
+            } catch(e) {
+                alert('保存失败: ' + e);
+            }
+        }
+
+        loadAgents();
+    </script>
+</body>
+</html>
