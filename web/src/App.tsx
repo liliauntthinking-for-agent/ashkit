@@ -5,15 +5,17 @@ import { Providers } from './components/Providers';
 import { Agents } from './components/Agents';
 import { Chat } from './components/Chat';
 import { MemoryPanel } from './components/Memory';
-import { ChatCircle, Cube, Brain, PlugsConnected } from '@phosphor-icons/react';
+import { Settings } from './components/Settings';
+import { ChatCircle, Cube, Brain, PlugsConnected, Gear } from '@phosphor-icons/react';
 
-type Tab = 'chat' | 'providers' | 'agents' | 'memory';
+type Tab = 'chat' | 'providers' | 'agents' | 'memory' | 'settings';
 
 const navItems: { id: Tab; label: string; icon: Icon }[] = [
   { id: 'chat', label: '对话', icon: ChatCircle },
   { id: 'providers', label: '提供商', icon: PlugsConnected },
   { id: 'agents', label: 'Agent', icon: Cube },
   { id: 'memory', label: '记忆', icon: Brain },
+  { id: 'settings', label: '设置', icon: Gear },
 ];
 
 function App() {
@@ -69,6 +71,7 @@ function App() {
             {activeTab === 'providers' && <Providers />}
             {activeTab === 'agents' && <Agents />}
             {activeTab === 'memory' && <MemoryPanel />}
+            {activeTab === 'settings' && <Settings />}
           </div>
         </main>
       </div>

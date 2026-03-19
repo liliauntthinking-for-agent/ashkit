@@ -55,6 +55,11 @@ class MessageSend(BaseModel):
     stream: bool = False
 
 
+class SettingsUpdate(BaseModel):
+    tools_max_calls: int = 10
+    tools_enabled: bool = True
+
+
 agents_runtime: dict[str, Any] = {}
 
 
@@ -391,6 +396,22 @@ async def add_semantic_memory(agent_id: str, content: str):
     await agent.memory.save_to_l3(agent_id, content, agent.llm)
 
     return {"status": "saved", "layer": "l3"}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    return {
+        "tools_max_calls": config.get("tools.max_calls", 10),
+        "tools_enabled": config.get("tools.enabled", True),
+    }
+
+
+@app.post("/api/settings")
+async def update_settings(settings: SettingsUpdate):
+    config.set("tools.max_calls", settings.tools_max_calls)
+    config.set("tools.enabled", settings.tools_enabled)
+    config.save()
+    return {"status": "saved"}
 
 
 @app.get("/")

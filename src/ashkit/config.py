@@ -27,6 +27,10 @@ DEFAULT_CONFIG = {
         "l2_retention": 100,
         "l3_enabled": True,
     },
+    "tools": {
+        "max_calls": 10,
+        "enabled": True,
+    },
     "gateway": {
         "host": "127.0.0.1",
         "port": 38471,

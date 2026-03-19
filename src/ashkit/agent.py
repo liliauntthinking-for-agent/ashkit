@@ -258,21 +258,37 @@ class Agent:
 
         self.memory.add_message("user", message)
 
-        # First call with tools
-        response = await self.llm.chat_with_tools(messages)
+        # 使用工具调用循环，限制最大轮次
+        max_calls = self.config.get("tools.max_calls", 10)
+        final_response = await self._process_with_tools(messages, user_id, max_calls)
         
-        # Handle tool calls
-        if response.get("tool_calls"):
-            # Add assistant message with tool_calls
+        await self._persist_memory(user_id)
+        return final_response
+
+    async def _process_with_tools(self, messages: list[dict], user_id: str, max_rounds: int) -> str:
+        """处理带工具调用的消息，支持多轮工具调用"""
+        
+        for round_num in range(max_rounds):
+            # 调用 LLM
+            response = await self.llm.chat_with_tools(messages)
+            
+            # 如果没有工具调用，直接返回内容
+            if not response.get("tool_calls"):
+                self.memory.add_message("assistant", response["content"])
+                return response["content"]
+            
+            # 有工具调用，执行工具
+            logger.info(f"Tool call round {round_num + 1}/{max_rounds}")
+            
+            # 添加 assistant 消息（包含 tool_calls）
             assistant_message = {
                 "role": "assistant",
                 "content": response.get("content", ""),
                 "tool_calls": response["tool_calls"]
             }
             messages.append(assistant_message)
-            self.memory.add_message("assistant", response.get("content", ""))
             
-            # Execute tools
+            # 执行所有工具调用
             for tool_call in response["tool_calls"]:
                 tool_name = tool_call["function"]["name"]
                 try:
@@ -280,28 +296,22 @@ class Agent:
                 except json.JSONDecodeError:
                     tool_args = {}
                 
+                logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
                 tool_result = await self.call_tool(tool_name, **tool_args)
                 
-                # Add tool result to messages
+                # 添加 tool 结果到消息
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
                     "content": str(tool_result)
                 })
-            
-            # Second call with tool results
-            final_response = await self.llm.chat(messages)
-            self.memory.add_message("assistant", final_response)
-            
-            await self._persist_memory(user_id)
-            return final_response
-        else:
-            # No tool calls, direct response
-            self.memory.add_message("assistant", response["content"])
-            await self._persist_memory(user_id)
-            return response["content"]
+        
+        # 达到最大轮次，返回提示
+        logger.warning(f"Reached max tool call rounds ({max_rounds})")
+        return "I've reached the maximum number of tool calls. Let me provide a summary based on what I've learned so far."
 
     async def process_message_stream(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
+        """流式处理消息，支持工具调用"""
         await self.initialize()
 
         context = await self.memory.get_context(self.agent_id, user_id, self.llm)
@@ -313,13 +323,63 @@ class Agent:
 
         self.memory.add_message("user", message)
         
+        # 获取最大工具调用次数
+        max_calls = self.config.get("tools.max_calls", 10)
+        
+        # 处理带工具调用的流式响应
         full_response = ""
-        async for chunk in self.llm.chat_stream(messages):
-            full_response += chunk
-            yield chunk
+        tool_call_count = 0
+        
+        while tool_call_count < max_calls:
+            # 使用非流式调用检查是否有工具调用
+            response = await self.llm.chat_with_tools(messages)
+            
+            if not response.get("tool_calls"):
+                # 没有工具调用，使用流式输出最终响应
+                async for chunk in self.llm.chat_stream(messages):
+                    full_response += chunk
+                    yield chunk
+                break
+            
+            # 有工具调用
+            tool_call_count += 1
+            logger.info(f"Stream tool call round {tool_call_count}/{max_calls}")
+            
+            # 通知用户正在执行工具
+            yield f"\n[正在执行工具: {', '.join(tc['function']['name'] for tc in response['tool_calls'])}]\n"
+            
+            # 添加 assistant 消息（包含 tool_calls）
+            assistant_message = {
+                "role": "assistant",
+                "content": response.get("content", ""),
+                "tool_calls": response["tool_calls"]
+            }
+            messages.append(assistant_message)
+            
+            # 执行所有工具调用
+            for tool_call in response["tool_calls"]:
+                tool_name = tool_call["function"]["name"]
+                try:
+                    tool_args = json.loads(tool_call["function"]["arguments"])
+                except json.JSONDecodeError:
+                    tool_args = {}
+                
+                logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
+                tool_result = await self.call_tool(tool_name, **tool_args)
+                
+                # 添加 tool 结果到消息
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": str(tool_result)
+                })
+                
+                yield f"[工具 {tool_name} 执行完成]\n"
+        
+        if tool_call_count >= max_calls:
+            yield "\n[已达到最大工具调用次数限制]\n"
         
         self.memory.add_message("assistant", full_response)
-
         await self._persist_memory(user_id)
 
     async def _persist_memory(self, user_id: str):
