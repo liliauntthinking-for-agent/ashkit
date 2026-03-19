@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
 import { 
   ChatCircle, Plus, Trash, PaperPlaneTilt, 
   Spinner, User, Robot, Sparkle 
@@ -170,9 +171,9 @@ export function Chat() {
   const isLoading = selectedSession ? loadingSessions.has(selectedSession) : false;
 
   return (
-    <div className="flex gap-6 min-h-[calc(100dvh-136px)]">
+    <div className="flex gap-6 h-[calc(100dvh-140px)]">
       {/* Sidebar */}
-      <aside className="w-72 flex-shrink-0 flex flex-col">
+      <aside className="w-72 flex-shrink-0 flex flex-col h-full">
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
@@ -185,13 +186,13 @@ export function Chat() {
           新会话
         </motion.button>
         
-        <div className="flex-1 bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden">
-          <div className="p-3 border-b border-[var(--color-border)]">
+        <div className="flex-1 bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden flex flex-col">
+          <div className="p-3 border-b border-[var(--color-border)] flex-shrink-0">
             <h3 className="text-xs font-semibold text-[var(--color-accent-muted)] uppercase tracking-wider">
               会话历史
             </h3>
           </div>
-          <div className="overflow-y-auto max-h-[calc(100dvh-300px)]">
+          <div className="flex-1 overflow-y-auto p-2">
             {sessions.length === 0 ? (
               <div className="p-6 text-center text-sm text-[var(--color-accent-muted)]">
                 <ChatCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -240,7 +241,7 @@ export function Chat() {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden h-full">
         <AnimatePresence mode="wait">
           {showNewSession ? (
             <motion.div
@@ -310,7 +311,7 @@ export function Chat() {
               key="chat"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex-1 flex flex-col"
+              className="flex-1 flex flex-col h-full overflow-hidden"
             >
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
@@ -379,7 +380,13 @@ export function Chat() {
                           : 'bg-[var(--color-surface)] text-[var(--color-accent)] rounded-tl-md'
                         }
                       `}>
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                        {msg.role === 'user' ? (
+                          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                        ) : (
+                          <div className="prose prose-sm max-w-none">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   ))
