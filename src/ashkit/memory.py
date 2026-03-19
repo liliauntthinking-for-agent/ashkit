@@ -112,11 +112,15 @@ class MemoryL3:
                 user_id TEXT NOT NULL,
                 content TEXT NOT NULL,
                 embedding BLOB,
+                faiss_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_user ON semantic_memories(user_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_faiss ON semantic_memories(faiss_id)"
         )
         conn.commit()
         conn.close()
@@ -125,9 +129,18 @@ class MemoryL3:
         if index_path.exists():
             self.index = faiss.read_index(str(index_path))
         else:
-            self.index = faiss.IndexFlatL2(vector_dim)
+            self.index = faiss.IndexIDMap(faiss.IndexFlatL2(vector_dim))
 
         self._conn = None
+        self._next_faiss_id = self._get_max_faiss_id() + 1
+
+    def _get_max_faiss_id(self) -> int:
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute("SELECT MAX(faiss_id) FROM semantic_memories")
+        result = cursor.fetchone()[0]
+        conn.close()
+        return result if result is not None else -1
 
     def _get_conn(self):
         import sqlite3
@@ -139,14 +152,19 @@ class MemoryL3:
     def add_memory(self, user_id: str, content: str, embedding: list[float]):
         conn = self._get_conn()
         embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
+        
+        faiss_id = self._next_faiss_id
+        self._next_faiss_id += 1
+        
         conn.execute(
-            "INSERT INTO semantic_memories (user_id, content, embedding) VALUES (?, ?, ?)",
-            (user_id, content, embedding_bytes),
+            "INSERT INTO semantic_memories (user_id, content, embedding, faiss_id) VALUES (?, ?, ?, ?)",
+            (user_id, content, embedding_bytes, faiss_id),
         )
         conn.commit()
 
         vec = np.array([embedding], dtype=np.float32)
-        self.index.add(vec)
+        ids = np.array([faiss_id], dtype=np.int64)
+        self.index.add_with_ids(vec, ids)
 
         index_path = self.db_path.parent / "faiss.index"
         faiss.write_index(self.index, str(index_path))
@@ -162,11 +180,11 @@ class MemoryL3:
 
         conn = self._get_conn()
         results = []
-        for dist, idx in zip(distances[0], indices[0]):
-            if idx >= 0:
+        for dist, faiss_id in zip(distances[0], indices[0]):
+            if faiss_id >= 0:
                 cursor = conn.execute(
-                    "SELECT id, user_id, content FROM semantic_memories WHERE id = ?",
-                    (idx + 1,),
+                    "SELECT id, user_id, content FROM semantic_memories WHERE faiss_id = ? AND user_id = ?",
+                    (int(faiss_id), user_id),
                 )
                 row = cursor.fetchone()
                 if row:

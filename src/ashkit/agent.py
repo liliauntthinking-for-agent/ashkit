@@ -5,6 +5,8 @@ from typing import Any, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
+MEMORY_PERSIST_THRESHOLD = 6
+
 
 class LLMClient:
     """Unified LLM client with custom provider support"""
@@ -193,6 +195,8 @@ class Agent:
         self.memory.add_message("user", message)
         self.memory.add_message("assistant", response)
 
+        await self._persist_memory(user_id)
+
         return response
 
     async def process_message_stream(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
@@ -213,6 +217,37 @@ class Agent:
             yield chunk
         
         self.memory.add_message("assistant", full_response)
+
+        await self._persist_memory(user_id)
+
+    async def _persist_memory(self, user_id: str):
+        message_count = len(self.memory.l1.messages)
+        
+        if message_count >= MEMORY_PERSIST_THRESHOLD:
+            await self.memory.save_to_l2(self.agent_id, user_id, self.llm, "")
+            await self._extract_semantic_memory(user_id)
+
+    async def _extract_semantic_memory(self, user_id: str):
+        messages = self.memory.l1.get_context()
+        if len(messages) < 4:
+            return
+
+        try:
+            extraction = await self.llm.chat([
+                {
+                    "role": "system",
+                    "content": "Extract important user information (name, preferences, facts about user) from the conversation. "
+                    "Return ONLY the facts, one per line. If nothing important to remember, return 'NONE'. "
+                    "Be concise. Example format:\nUser name: John\nLikes: Python programming"
+                },
+                {"role": "user", "content": str(messages)}
+            ])
+            
+            if extraction and extraction.strip() != "NONE":
+                await self.memory.save_to_l3(user_id, extraction.strip(), self.llm)
+                logger.info(f"Saved semantic memory for {user_id}: {extraction[:50]}...")
+        except Exception as e:
+            logger.warning(f"Failed to extract semantic memory: {e}")
 
     def _build_system_prompt(self) -> str:
         prompt = "You are a helpful AI assistant."
