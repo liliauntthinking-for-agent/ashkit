@@ -65,6 +65,70 @@ class LLMClient:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
 
+    async def chat_with_tools(self, messages: list[dict]) -> dict:
+        """Chat with function calling support"""
+        import httpx
+        from .tools import get_all_tools
+
+        if not self.provider or not self.model:
+            return {"content": "Error: Provider or model not configured", "tool_calls": None}
+        
+        provider_config = self.config.get("providers", {}).get(self.provider, {})
+        api_key = provider_config.get("apiKey", "")
+        api_base = provider_config.get("apiBase", "")
+        
+        if not api_base:
+            return {"content": "Error: No apiBase configured", "tool_calls": None}
+
+        # Get available tools
+        tools = get_all_tools()
+        if not tools:
+            # No tools, just do regular chat
+            content = await self.chat(messages)
+            return {"content": content, "tool_calls": None}
+
+        # Format tools for OpenAI API
+        openai_tools = []
+        for tool in tools:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
+                }
+            })
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{api_base.rstrip('/')}/chat/completions",
+                headers=headers,
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "tools": openai_tools,
+                    "tool_choice": "auto",
+                    "stream": False,
+                },
+                timeout=120.0,
+            )
+            if resp.status_code != 200:
+                logger.error(f"LLM error: {resp.text}")
+                return {"content": f"Error: {resp.status_code}", "tool_calls": None}
+            
+            data = resp.json()
+            message = data["choices"][0]["message"]
+            
+            return {
+                "content": message.get("content", ""),
+                "tool_calls": message.get("tool_calls")
+            }
+
     async def _custom_chat_stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
         import httpx
 
@@ -192,14 +256,50 @@ class Agent:
         messages.extend(context)
         messages.append({"role": "user", "content": message})
 
-        response = await self.llm.chat(messages)
-
         self.memory.add_message("user", message)
-        self.memory.add_message("assistant", response)
 
-        await self._persist_memory(user_id)
-
-        return response
+        # First call with tools
+        response = await self.llm.chat_with_tools(messages)
+        
+        # Handle tool calls
+        if response.get("tool_calls"):
+            # Add assistant message with tool_calls
+            assistant_message = {
+                "role": "assistant",
+                "content": response.get("content", ""),
+                "tool_calls": response["tool_calls"]
+            }
+            messages.append(assistant_message)
+            self.memory.add_message("assistant", response.get("content", ""))
+            
+            # Execute tools
+            for tool_call in response["tool_calls"]:
+                tool_name = tool_call["function"]["name"]
+                try:
+                    tool_args = json.loads(tool_call["function"]["arguments"])
+                except json.JSONDecodeError:
+                    tool_args = {}
+                
+                tool_result = await self.call_tool(tool_name, **tool_args)
+                
+                # Add tool result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": str(tool_result)
+                })
+            
+            # Second call with tool results
+            final_response = await self.llm.chat(messages)
+            self.memory.add_message("assistant", final_response)
+            
+            await self._persist_memory(user_id)
+            return final_response
+        else:
+            # No tool calls, direct response
+            self.memory.add_message("assistant", response["content"])
+            await self._persist_memory(user_id)
+            return response["content"]
 
     async def process_message_stream(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
         await self.initialize()
@@ -252,11 +352,22 @@ class Agent:
             logger.warning(f"Failed to extract semantic memory: {e}")
 
     def _build_system_prompt(self) -> str:
+        from .tools import get_all_tools
+        
         prompt = "You are a helpful AI assistant."
+        
+        tools = get_all_tools()
+        if tools:
+            prompt += "\n\nYou have access to the following tools:\n"
+            for tool in tools:
+                prompt += f"\n{tool.name}: {tool.description}\n"
+            prompt += "\nWhen you need to use a tool, respond with a tool call in the format specified by the API."
+        
         if self.skills:
             prompt += "\n\nAvailable skills:\n"
             for skill in self.skills:
                 prompt += f"- {skill.name}: {skill.description}\n"
+        
         return prompt
 
     async def call_tool(self, tool_name: str, **kwargs) -> Any:

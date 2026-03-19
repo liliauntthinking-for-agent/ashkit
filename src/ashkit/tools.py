@@ -18,6 +18,21 @@ class BaseTool:
 class BashTool(BaseTool):
     def __init__(self):
         super().__init__("bash", "Execute shell commands")
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds",
+                    "default": 60
+                }
+            },
+            "required": ["command"]
+        }
 
     async def execute(self, command: str, timeout: int = 60) -> str:
         try:
@@ -42,6 +57,16 @@ class ReadTool(BaseTool):
     def __init__(self, workspace: Path):
         super().__init__("read", "Read files from workspace")
         self.workspace = workspace
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The file path to read (relative to workspace)"
+                }
+            },
+            "required": ["path"]
+        }
 
     async def execute(self, path: str) -> str:
         try:
@@ -60,6 +85,20 @@ class WriteTool(BaseTool):
     def __init__(self, workspace: Path):
         super().__init__("write", "Write files to workspace")
         self.workspace = workspace
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The file path to write (relative to workspace)"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The content to write to the file"
+                }
+            },
+            "required": ["path", "content"]
+        }
 
     async def execute(self, path: str, content: str) -> str:
         try:
@@ -73,8 +112,26 @@ class WriteTool(BaseTool):
 
 class EditTool(BaseTool):
     def __init__(self, workspace: Path):
-        super().__init__("edit", "Edit files in workspace")
+        super().__init__("edit", "Edit files in workspace by replacing text")
         self.workspace = workspace
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The file path to edit (relative to workspace)"
+                },
+                "old": {
+                    "type": "string",
+                    "description": "The text to replace"
+                },
+                "new": {
+                    "type": "string",
+                    "description": "The new text to insert"
+                }
+            },
+            "required": ["path", "old", "new"]
+        }
 
     async def execute(self, path: str, old: str, new: str) -> str:
         try:
@@ -94,6 +151,20 @@ class EditTool(BaseTool):
 class MCPTool(BaseTool):
     def __init__(self):
         super().__init__("mcp", "Execute MCP server tools")
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "server": {
+                    "type": "string",
+                    "description": "The MCP server name"
+                },
+                "tool": {
+                    "type": "string",
+                    "description": "The tool name to execute"
+                }
+            },
+            "required": ["server", "tool"]
+        }
 
     async def execute(self, server: str, tool: str, **kwargs) -> Any:
         return f"MCP tool execution not implemented yet: {server}.{tool}"
@@ -116,3 +187,8 @@ def init_tools(workspace: Path):
     register_tool(WriteTool(workspace))
     register_tool(EditTool(workspace))
     register_tool(MCPTool())
+
+
+def get_all_tools() -> list[BaseTool]:
+    """Get all registered tools"""
+    return list(_TOOL_REGISTRY.values())

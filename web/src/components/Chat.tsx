@@ -391,6 +391,38 @@ export function Chat() {
                     </motion.div>
                   ))
                 )}
+                {/* Loading indicator */}
+                {isLoading && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex gap-3"
+                  >
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--color-surface)]">
+                      <Robot className="w-4 h-4 text-[var(--color-accent)]" weight="duotone" />
+                    </div>
+                    <div className="max-w-[75%] px-4 py-3 rounded-2xl rounded-tl-md bg-[var(--color-surface)] text-[var(--color-accent)] text-sm">
+                      <div className="flex items-center gap-1">
+                        <motion.span
+                          animate={{ opacity: [0.4, 1, 0.4] }}
+                          transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
+                          className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                        />
+                        <motion.span
+                          animate={{ opacity: [0.4, 1, 0.4] }}
+                          transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                          className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                        />
+                        <motion.span
+                          animate={{ opacity: [0.4, 1, 0.4] }}
+                          transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
+                          className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+                
                 <div ref={messagesEndRef} />
               </div>
 
