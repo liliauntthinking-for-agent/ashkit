@@ -1,4 +1,5 @@
 import json
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,7 @@ DEFAULT_CONFIG = {
 class Config:
     def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or CONFIG_PATH
-        self._config = DEFAULT_CONFIG.copy()
+        self._config = copy.deepcopy(DEFAULT_CONFIG)
         self.load()
 
     def load(self):
@@ -91,6 +92,3 @@ class Config:
     @property
     def config(self) -> dict:
         return self._config
-
-
-config = Config()

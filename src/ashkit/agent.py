@@ -172,10 +172,12 @@ class Agent:
 
         from .memory import MemoryManager
         from .skills import SkillLoader
+        from .tools import init_tools
 
         self.memory = MemoryManager(self.workspace / self.agent_id)
         self.skill_loader = SkillLoader(self.workspace / "skills")
         self.skills = await self.skill_loader.load_all()
+        init_tools(self.workspace)
         self._initialized = True
 
         logger.info(f"Agent {self.agent_id} initialized with {len(self.skills)} skills")

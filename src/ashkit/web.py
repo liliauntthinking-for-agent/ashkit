@@ -359,12 +359,12 @@ async def send_message(session_id: str, message: MessageSend):
 
 @app.get("/api/memory/{agent_id}")
 async def get_memory(agent_id: str):
-    if agent_id not in agents_runtime:
-        raise HTTPException(status_code=404, detail="Agent not found or not initialized")
+    try:
+        agent = await get_agent_runtime(agent_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
-    agent = agents_runtime[agent_id]
-    if not hasattr(agent, "memory"):
-        raise HTTPException(status_code=404, detail="Memory not initialized")
+    await agent.initialize()
 
     memory = agent.memory
 
@@ -373,7 +373,7 @@ async def get_memory(agent_id: str):
             "message_count": len(memory.l1.messages),
             "messages": memory.l1.get_context(),
         },
-        "l2_episodic": memory.l2.get_recent(agent_id, limit=10),
+        "l2_episodic": memory.l2.get_by_user(agent_id, limit=10),
         "l3_semantic": memory.l3.get_all(agent_id)
         if hasattr(memory.l3, "get_all")
         else [],
@@ -382,13 +382,12 @@ async def get_memory(agent_id: str):
 
 @app.post("/api/memory/{agent_id}/l3")
 async def add_semantic_memory(agent_id: str, content: str):
-    if agent_id not in agents_runtime:
-        raise HTTPException(status_code=404, detail="Agent not found or not initialized")
+    try:
+        agent = await get_agent_runtime(agent_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent not found")
 
-    agent = agents_runtime[agent_id]
-    if not hasattr(agent, "memory"):
-        raise HTTPException(status_code=404, detail="Memory not initialized")
-
+    await agent.initialize()
     await agent.memory.save_to_l3(agent_id, content, agent.llm)
 
     return {"status": "saved", "layer": "l3"}

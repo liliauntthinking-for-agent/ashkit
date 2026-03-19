@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .channels.feishu import FeishuClient
 from .agent import Agent
-from .config import config
+from .config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +12,8 @@ logger = logging.getLogger(__name__)
 class Gateway:
     """Multi-agent center node - routes messages to agents and manages shared memory"""
 
-    def __init__(self, config_path: Path | None = None):
-        self.config = config
-        if config_path:
-            self.config = type(config)(config_path)
+    def __init__(self, config: Config | None = None, config_path: Path | None = None):
+        self.config = config or Config(config_path)
         self.feishu: FeishuClient | None = None
         self.agents: dict[str, Agent] = {}
         self._running = False
@@ -87,9 +85,13 @@ class Gateway:
             ).expanduser()
             workspace.mkdir(parents=True, exist_ok=True)
 
+            agent_config = self.config.config.copy()
+            agent_config["model"] = self.config.get("agents.defaults.model", "")
+            agent_config["provider"] = self.config.get("agents.defaults.provider", "")
+
             self.agents[user_id] = Agent(
                 agent_id=user_id,
-                config=self.config.config,
+                config=agent_config,
                 workspace=workspace,
             )
 

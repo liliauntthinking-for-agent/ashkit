@@ -51,6 +51,9 @@ class MemoryL2:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_session ON episodes(session_id)
         """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user ON episodes(user_id)
+        """)
         conn.commit()
         conn.close()
 
@@ -76,6 +79,22 @@ class MemoryL2:
         )
         results = [
             {"id": r[0], "session_id": r[1], "summary": r[2], "created_at": r[3]}
+            for r in cursor.fetchall()
+        ]
+        conn.close()
+        return results
+
+    def get_by_user(self, user_id: str, limit: int = 10) -> list[dict]:
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            "SELECT id, session_id, user_id, summary, created_at FROM episodes "
+            "WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        )
+        results = [
+            {"id": r[0], "session_id": r[1], "user_id": r[2], "summary": r[3], "created_at": r[4]}
             for r in cursor.fetchall()
         ]
         conn.close()
@@ -223,14 +242,14 @@ class MemoryManager:
     ) -> list[dict]:
         context = self.l1.get_context()
 
-        recent_episodes = self.l2.get_recent(session_id, limit=5)
+        recent_episodes = self.l2.get_by_user(user_id, limit=5)
         if recent_episodes:
             context.insert(
                 0,
                 {
                     "role": "system",
-                    "content": "Previous conversation summaries:\\n"
-                    + "\\n".join(e["summary"] for e in recent_episodes),
+                    "content": "Previous conversation summaries:\n"
+                    + "\n".join(e["summary"] for e in recent_episodes),
                 },
             )
 
@@ -245,8 +264,8 @@ class MemoryManager:
                         0,
                         {
                             "role": "system",
-                            "content": "User preferences and past memories:\\n"
-                            + "\\n".join(m["content"] for m in memories),
+                            "content": "User preferences and past memories:\n"
+                            + "\n".join(m["content"] for m in memories),
                         },
                     )
             except Exception as e:
