@@ -413,8 +413,28 @@ class Agent:
 
     def _build_system_prompt(self) -> str:
         from .tools import get_all_tools
+        import platform
+        import os
         
-        prompt = "You are a helpful AI assistant."
+        # 获取运行环境信息
+        current_dir = os.getcwd()
+        home_dir = os.path.expanduser("~")
+        desktop_dir = os.path.join(home_dir, "Desktop")
+        
+        prompt = f"""You are a helpful AI assistant running directly on the user's local machine.
+
+IMPORTANT ENVIRONMENT INFORMATION:
+- You are running on: {platform.system()} {platform.machine()}
+- Current working directory: {current_dir}
+- User home directory: {home_dir}
+- User Desktop directory: {desktop_dir}
+- Workspace directory: {self.workspace}
+
+When the user asks about "desktop", they are referring to: {desktop_dir}
+When the user asks about "current directory", they are referring to: {current_dir}
+When using file tools (read/write/edit), paths are relative to the workspace: {self.workspace}
+
+You have direct access to the user's local file system and can execute shell commands on their machine."""
         
         tools = get_all_tools()
         if tools:
