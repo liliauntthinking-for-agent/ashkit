@@ -33,6 +33,7 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT UNIQUE NOT NULL,
                 agent_id TEXT NOT NULL,
+                name TEXT,
                 status TEXT DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (agent_id) REFERENCES agents(agent_id)
@@ -88,16 +89,16 @@ class Database:
         conn.close()
         return affected > 0
 
-    def create_session(self, session_id: str, agent_id: str) -> dict:
+    def create_session(self, session_id: str, agent_id: str, name: str | None = None) -> dict:
         conn = self._get_conn()
         now = datetime.now().isoformat()
         conn.execute(
-            "INSERT INTO sessions (session_id, agent_id, created_at) VALUES (?, ?, ?)",
-            (session_id, agent_id, now),
+            "INSERT INTO sessions (session_id, agent_id, name, created_at) VALUES (?, ?, ?, ?)",
+            (session_id, agent_id, name, now),
         )
         conn.commit()
         conn.close()
-        return {"session_id": session_id, "agent_id": agent_id, "status": "active"}
+        return {"session_id": session_id, "agent_id": agent_id, "name": name, "status": "active"}
 
     def get_session(self, session_id: str) -> dict | None:
         conn = self._get_conn()
@@ -106,6 +107,17 @@ class Database:
         ).fetchone()
         conn.close()
         return dict(row) if row else None
+
+    def update_session_name(self, session_id: str, name: str) -> bool:
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE sessions SET name = ? WHERE session_id = ?",
+            (name, session_id),
+        )
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected > 0
 
     def list_sessions(self, agent_id: str | None = None) -> list[dict]:
         conn = self._get_conn()

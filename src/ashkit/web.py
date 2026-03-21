@@ -55,6 +55,10 @@ class MessageSend(BaseModel):
     stream: bool = False
 
 
+class SessionUpdate(BaseModel):
+    name: str
+
+
 class SettingsUpdate(BaseModel):
     tools_max_calls: int = 10
     tools_enabled: bool = True
@@ -275,6 +279,7 @@ async def list_sessions(agent_id: str | None = None):
         result.append({
             "session_id": s["session_id"],
             "agent_id": s["agent_id"],
+            "name": s.get("name"),
             "message_count": len(messages),
         })
     return result
@@ -307,6 +312,7 @@ async def get_session(session_id: str):
     return {
         "session_id": session_id,
         "agent_id": session["agent_id"],
+        "name": session.get("name"),
         "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
     }
 
@@ -317,11 +323,28 @@ async def delete_session(session_id: str):
     return {"status": "deleted"}
 
 
+@app.patch("/api/sessions/{session_id}")
+async def update_session(session_id: str, update: SessionUpdate):
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    db.update_session_name(session_id, update.name)
+    return {"status": "updated", "name": update.name}
+
+
 async def generate_response(
     agent: Any, session_id: str, message: str
 ) -> AsyncGenerator[str, None]:
     try:
+        messages = db.get_messages(session_id)
+        is_first_message = len(messages) == 0
+        
         db.add_message(session_id, "user", message)
+        
+        if is_first_message:
+            name = message[:50] + ("..." if len(message) > 50 else "")
+            db.update_session_name(session_id, name)
         
         full_response = ""
         async for chunk in agent.process_message_stream(session_id, message):
@@ -351,7 +374,14 @@ async def send_message(session_id: str, message: MessageSend):
         )
 
     try:
+        messages = db.get_messages(session_id)
+        is_first_message = len(messages) == 0
+        
         db.add_message(session_id, "user", message.content)
+        
+        if is_first_message:
+            name = message.content[:50] + ("..." if len(message.content) > 50 else "")
+            db.update_session_name(session_id, name)
         
         response = await agent.process_message(session_id, message.content)
         

@@ -16,6 +16,7 @@ interface Agent {
 interface Session {
   session_id: string;
   agent_id: string;
+  name?: string;
   message_count: number;
 }
 
@@ -218,7 +219,7 @@ export function Chat() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-[var(--color-accent)] truncate">
-                        {s.session_id}
+                        {s.name || s.session_id}
                       </div>
                       <div className="text-xs text-[var(--color-accent-muted)] mt-0.5">
                         {s.agent_id} · {s.message_count} 条消息
@@ -319,7 +320,7 @@ export function Chat() {
                   {selectedSession ? (
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      {selectedSession}
+                      {sessions.find(s => s.session_id === selectedSession)?.name || selectedSession}
                     </span>
                   ) : (
                     <span className="text-[var(--color-accent-muted)]">请选择会话或创建新会话</span>

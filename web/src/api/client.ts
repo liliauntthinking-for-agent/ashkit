@@ -17,6 +17,7 @@ interface Agent {
 interface Session {
   session_id: string;
   agent_id: string;
+  name?: string;
   message_count: number;
 }
 
