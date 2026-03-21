@@ -383,6 +383,24 @@ export function Chat() {
                       `}>
                         {msg.role === 'user' ? (
                           <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                        ) : msg.content === '' && isLoading && i === messages.length - 1 ? (
+                          <div className="flex items-center gap-1">
+                            <motion.span
+                              animate={{ opacity: [0.4, 1, 0.4] }}
+                              transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
+                              className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                            />
+                            <motion.span
+                              animate={{ opacity: [0.4, 1, 0.4] }}
+                              transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                              className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                            />
+                            <motion.span
+                              animate={{ opacity: [0.4, 1, 0.4] }}
+                              transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
+                              className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                            />
+                          </div>
                         ) : (
                           <div className="prose prose-sm max-w-none">
                             <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -392,8 +410,8 @@ export function Chat() {
                     </motion.div>
                   ))
                 )}
-                {/* Loading indicator */}
-                {isLoading && (
+                {/* Loading indicator - only for non-stream mode */}
+                {isLoading && !streamMode && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}

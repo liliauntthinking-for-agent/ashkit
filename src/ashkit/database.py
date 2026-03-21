@@ -157,3 +157,12 @@ class Database:
         conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
         conn.commit()
         conn.close()
+
+    def delete_session(self, session_id: str) -> bool:
+        conn = self._get_conn()
+        conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected > 0

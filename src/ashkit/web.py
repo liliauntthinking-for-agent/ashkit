@@ -319,7 +319,7 @@ async def get_session(session_id: str):
 
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
-    db.clear_messages(session_id)
+    db.delete_session(session_id)
     return {"status": "deleted"}
 
 
