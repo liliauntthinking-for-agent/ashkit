@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   ChatCircle, Plus, Trash, PaperPlaneTilt, 
   Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain
@@ -43,6 +44,69 @@ interface Message {
   role: string;
   content: string;
   timeline?: TimelineEvent[];
+}
+
+function parseTimelineFromContent(content: string): { content: string; timeline?: TimelineEvent[] } {
+  const timeline: TimelineEvent[] = [];
+  let cleanContent = content;
+  
+  // Parse thinking blocks
+  const thinkingRegex = /__THINKING__(.+?)__THINKING_END__/g;
+  let match;
+  while ((match = thinkingRegex.exec(content)) !== null) {
+    timeline.push({
+      type: 'thinking',
+      data: { content: match[1], expanded: false }
+    });
+    cleanContent = cleanContent.replace(match[0], '');
+  }
+  
+  // Parse tool calls and results
+  const toolStartRegex = /__TOOL_START__(.+?)__TOOL_END__/g;
+  const toolResults: Record<string, { args: string; result: string }> = {};
+  
+  // First pass: collect tool results
+  const toolResultRegex = /__TOOL_RESULT__(.+?)__TOOL_END__/g;
+  while ((match = toolResultRegex.exec(content)) !== null) {
+    try {
+      const data = JSON.parse(match[1]);
+      const key = data.name;
+      toolResults[key] = { args: JSON.stringify(data.args, null, 2), result: data.result };
+      cleanContent = cleanContent.replace(match[0], '');
+    } catch {}
+  }
+  
+  // Second pass: parse tool starts
+  while ((match = toolStartRegex.exec(content)) !== null) {
+    try {
+      const tools = JSON.parse(match[1]);
+      for (const t of tools) {
+        let formattedArgs = t.args;
+        try {
+          const parsed = JSON.parse(t.args);
+          formattedArgs = JSON.stringify(parsed, null, 2);
+        } catch {}
+        
+        const toolResult = toolResults[t.name];
+        timeline.push({
+          type: 'tool',
+          data: {
+            name: t.name,
+            args: toolResult?.args || formattedArgs,
+            result: toolResult?.result,
+            status: toolResult ? 'success' : 'pending',
+            expanded: false
+          }
+        });
+      }
+      cleanContent = cleanContent.replace(match[0], '');
+    } catch {}
+  }
+  
+  return {
+    content: cleanContent.trim(),
+    timeline: timeline.length > 0 ? timeline : undefined
+  };
 }
 
 function ThinkingCard({ thinking, onToggle }: { thinking: ThinkingBlock; onToggle: () => void }) {
@@ -180,8 +244,47 @@ export function Chat() {
       const session = await api.getSession(sessionId);
       setCurrentAgentId(session.agent_id);
       if (!cached) {
-        setMessages(session.messages || []);
-        messagesMapRef.current.set(sessionId, session.messages || []);
+        // Parse messages - use metadata.timeline if available, otherwise parse from content
+        const parsedMessages = (session.messages || []).map((m: any) => {
+          let timeline: TimelineEvent[] | undefined;
+          
+          // Use metadata.timeline from server if available
+          if (m.metadata?.timeline) {
+            timeline = m.metadata.timeline.map((t: any) => {
+              if (t.type === 'thinking') {
+                return {
+                  type: 'thinking' as const,
+                  data: { content: t.content, expanded: false }
+                };
+              } else {
+                return {
+                  type: 'tool' as const,
+                  data: {
+                    name: t.name,
+                    args: typeof t.args === 'string' ? t.args : JSON.stringify(t.args, null, 2),
+                    result: t.result,
+                    status: t.result ? 'success' : 'pending',
+                    expanded: false
+                  }
+                };
+              }
+            });
+          } else {
+            // Fallback: parse from content
+            const parsed = parseTimelineFromContent(m.content);
+            if (parsed.timeline) {
+              timeline = parsed.timeline;
+            }
+          }
+          
+          return {
+            role: m.role,
+            content: m.content,
+            timeline
+          };
+        });
+        setMessages(parsedMessages);
+        messagesMapRef.current.set(sessionId, parsedMessages);
       }
       setShowNewSession(false);
     } catch (e) {
@@ -695,8 +798,8 @@ export function Chat() {
                               </div>
                             ) : msg.content ? (
                               <div className="prose prose-sm max-w-none">
-                                <ReactMarkdown>{msg.content}</ReactMarkdown>
-                              </div>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                </div>
                             ) : null}
                           </div>
                         )}

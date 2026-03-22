@@ -667,11 +667,43 @@ async def generate_response(
             db.update_session_name(session_id, name)
         
         full_response = ""
+        timeline: list[dict] = []
+        current_tool: dict | None = None
+        
         async for chunk in agent.process_message_stream(session_id, message):
-            full_response += chunk
+            # Send chunk to frontend first
             yield f"data: {json.dumps({'content': chunk})}\n\n"
+            
+            # Parse special markers for timeline (to save to DB)
+            if "__THINKING__" in chunk:
+                import re
+                match = re.search(r"__THINKING__(.+?)__THINKING_END__", chunk)
+                if match:
+                    timeline.append({"type": "thinking", "content": match.group(1)})
+            elif "__TOOL_START__" in chunk:
+                import re
+                match = re.search(r"__TOOL_START__(.+?)__TOOL_END__", chunk)
+                if match:
+                    tools = json.loads(match.group(1))
+                    for t in tools:
+                        current_tool = {"type": "tool", "name": t["name"], "args": t.get("args", "{}")}
+            elif "__TOOL_RESULT__" in chunk:
+                import re
+                match = re.search(r"__TOOL_RESULT__(.+?)__TOOL_END__", chunk)
+                if match and current_tool:
+                    result_data = json.loads(match.group(1))
+                    current_tool["result"] = result_data.get("result", "")
+                    current_tool["args"] = json.dumps(result_data.get("args", {}), ensure_ascii=False)
+                    timeline.append(current_tool)
+                    current_tool = None
+            
+            # Also append to full_response (excluding markers for clean text)
+            if "__THINKING__" not in chunk and "__TOOL_START__" not in chunk and "__TOOL_RESULT__" not in chunk:
+                full_response += chunk
 
-        db.add_message(session_id, "assistant", full_response)
+        # Save message with timeline metadata
+        metadata = {"timeline": timeline} if timeline else None
+        db.add_message(session_id, "assistant", full_response, metadata)
         
         yield f"data: {json.dumps({'done': True})}\n\n"
 

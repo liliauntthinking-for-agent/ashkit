@@ -191,17 +191,18 @@ class Database:
         conn.close()
         return [dict(row) for row in rows]
 
-    def add_message(self, session_id: str, role: str, content: str) -> dict:
+    def add_message(self, session_id: str, role: str, content: str, metadata: dict | None = None) -> dict:
         conn = self._get_conn()
         now = datetime.now().isoformat()
+        metadata_json = json.dumps(metadata, ensure_ascii=False) if metadata else None
         cursor = conn.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (session_id, role, content, now),
+            "INSERT INTO messages (session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+            (session_id, role, content, metadata_json, now),
         )
         msg_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        return {"id": msg_id, "session_id": session_id, "role": role, "content": content}
+        return {"id": msg_id, "session_id": session_id, "role": role, "content": content, "metadata": metadata}
 
     def get_messages(self, session_id: str, limit: int = 100) -> list[dict]:
         conn = self._get_conn()
@@ -210,7 +211,13 @@ class Database:
             (session_id, limit),
         ).fetchall()
         conn.close()
-        return [dict(row) for row in rows]
+        results = []
+        for row in rows:
+            r = dict(row)
+            if r.get("metadata"):
+                r["metadata"] = json.loads(r["metadata"])
+            results.append(r)
+        return results
 
     def clear_messages(self, session_id: str):
         conn = self._get_conn()
