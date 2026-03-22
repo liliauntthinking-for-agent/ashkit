@@ -225,6 +225,10 @@ class Agent:
         self.agent_id = agent_id
         self.config = config
         self.workspace = workspace
+        self.profile = config.get("profile") or {}
+        self.user_id = config.get("user_id")
+        self.relation = config.get("relation")
+        self.user_profile = config.get("user_profile") or {}
         self.llm = LLMClient(config)
         self.tools = []
         self.skills = []
@@ -239,8 +243,18 @@ class Agent:
         from .tools import init_tools
 
         self.memory = MemoryManager(self.workspace / self.agent_id)
-        self.skill_loader = SkillLoader(self.workspace / "skills")
-        self.skills = await self.skill_loader.load_all()
+        
+        agent_skills_dir = self.workspace / self.agent_id / "skills"
+        builtin_skills_dir = Path.home() / ".agents" / "skills"
+        
+        self.skills = []
+        
+        skill_loader = SkillLoader(agent_skills_dir)
+        self.skills.extend(await skill_loader.load_all())
+        
+        builtin_loader = SkillLoader(builtin_skills_dir)
+        self.skills.extend(await builtin_loader.load_all())
+        
         init_tools(self.workspace)
         self._initialized = True
 
@@ -416,12 +430,94 @@ class Agent:
         import platform
         import os
         
-        # 获取运行环境信息
         current_dir = os.getcwd()
         home_dir = os.path.expanduser("~")
         desktop_dir = os.path.join(home_dir, "Desktop")
         
-        prompt = f"""You are a helpful AI assistant running directly on the user's local machine.
+        profile_name = self.profile.get("name", "") or self.agent_id
+        profile_intro = f"Your name is {profile_name}."
+        
+        profile_details = []
+        profile_fields = [
+            ("nickname", "Nickname"),
+            ("gender", "Gender"),
+            ("birthday", "Birthday"),
+            ("height", "Height (cm)"),
+            ("weight", "Weight (kg)"),
+            ("blood_type", "Blood type"),
+            ("email", "Email"),
+            ("address", "Address"),
+            ("school", "School"),
+            ("education", "Education"),
+            ("nationality", "Nationality"),
+            ("personality", "Personality"),
+            ("hobbies", "Hobbies"),
+            ("skills", "Skills"),
+            ("mbti", "MBTI"),
+            ("background", "Background"),
+        ]
+        
+        for key, label in profile_fields:
+            value = self.profile.get(key)
+            if value:
+                profile_details.append(f"- {label}: {value}")
+        
+        profile_section = ""
+        if profile_details:
+            profile_section = "\n\nYOUR PROFILE:\n" + "\n".join(profile_details)
+        
+        user_section = ""
+        if self.user_profile:
+            relation_map = {
+                "friend": "friend",
+                "best_friend": "best friend",
+                "partner": "partner",
+                "assistant": "assistant",
+                "mentor": "mentor",
+                "student": "student",
+                "colleague": "colleague",
+                "family": "family member",
+                "acquaintance": "acquaintance",
+                "stranger": "stranger",
+            }
+            relation_label = relation_map.get(self.relation, self.relation) if self.relation else ""
+            
+            user_name = self.user_profile.get("name", "") or self.user_id or "the user"
+            user_details = []
+            user_fields = [
+                ("nickname", "Nickname"),
+                ("gender", "Gender"),
+                ("birthday", "Birthday"),
+                ("height", "Height (cm)"),
+                ("weight", "Weight (kg)"),
+                ("blood_type", "Blood type"),
+                ("email", "Email"),
+                ("address", "Address"),
+                ("school", "School"),
+                ("education", "Education"),
+                ("occupation", "Occupation"),
+                ("nationality", "Nationality"),
+                ("personality", "Personality"),
+                ("hobbies", "Hobbies"),
+                ("skills", "Skills"),
+                ("mbti", "MBTI"),
+                ("background", "Background"),
+            ]
+            
+            for key, label in user_fields:
+                value = self.user_profile.get(key)
+                if value:
+                    user_details.append(f"- {label}: {value}")
+            
+            user_section = "\n\nTHE USER YOU ARE TALKING TO:\n"
+            user_section += f"Name: {user_name}\n"
+            if relation_label:
+                user_section += f"Your relationship with this user: {relation_label}\n"
+            if user_details:
+                user_section += "User profile:\n" + "\n".join(user_details)
+        
+        prompt = f"""You are {profile_name}, a helpful AI assistant running directly on the user's local machine.
+{profile_intro}{profile_section}{user_section}
 
 IMPORTANT ENVIRONMENT INFORMATION:
 - You are running on: {platform.system()} {platform.machine()}

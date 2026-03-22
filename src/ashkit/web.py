@@ -26,10 +26,69 @@ if _assets_path.exists():
     app.mount("/assets", StaticFiles(directory=str(_assets_path)), name="assets")
 
 
+class AgentProfile(BaseModel):
+    name: str = ""
+    nickname: str = ""
+    gender: str = ""
+    birthday: str = ""
+    height: int | None = None
+    weight: int | None = None
+    blood_type: str = ""
+    email: str = ""
+    address: str = ""
+    school: str = ""
+    education: str = ""
+    nationality: str = ""
+    personality: str = ""
+    hobbies: str = ""
+    skills: str = ""
+    mbti: str = ""
+    background: str = ""
+
+
+class UserProfile(BaseModel):
+    name: str = ""
+    nickname: str = ""
+    gender: str = ""
+    birthday: str = ""
+    height: int | None = None
+    weight: int | None = None
+    blood_type: str = ""
+    email: str = ""
+    address: str = ""
+    school: str = ""
+    education: str = ""
+    occupation: str = ""
+    nationality: str = ""
+    personality: str = ""
+    hobbies: str = ""
+    skills: str = ""
+    mbti: str = ""
+    background: str = ""
+
+
 class AgentCreate(BaseModel):
     agent_id: str
     model: str
     provider: str
+    profile: AgentProfile | None = None
+    user_id: str | None = None
+    relation: str | None = None
+
+
+class AgentUpdate(BaseModel):
+    profile: AgentProfile | None = None
+    user_id: str | None = None
+    relation: str | None = None
+
+
+class UserCreate(BaseModel):
+    user_id: str
+    profile: UserProfile | None = None
+
+
+class UserUpdate(BaseModel):
+    profile: UserProfile | None = None
 
 
 class ProviderCreate(BaseModel):
@@ -55,6 +114,11 @@ class MessageSend(BaseModel):
     stream: bool = False
 
 
+class SkillInvoke(BaseModel):
+    prompt: str
+    agent_id: str
+
+
 class SessionUpdate(BaseModel):
     name: str
 
@@ -78,6 +142,15 @@ async def get_agent_runtime(agent_id: str) -> Any:
         agent_config = config.config.copy()
         agent_config["model"] = agent_info["model"]
         agent_config["provider"] = agent_info["provider"]
+        agent_config["profile"] = agent_info.get("profile")
+        agent_config["user_id"] = agent_info.get("user_id")
+        agent_config["relation"] = agent_info.get("relation")
+        
+        if agent_info.get("user_id"):
+            user_info = db.get_user(agent_info["user_id"])
+            agent_config["user_profile"] = user_info.get("profile") if user_info else None
+        else:
+            agent_config["user_profile"] = None
 
         agent = Agent(agent_id=agent_id, config=agent_config, workspace=workspace)
         agents_runtime[agent_id] = agent
@@ -225,7 +298,13 @@ async def delete_provider_model(provider_name: str, model_name: str):
 @app.get("/api/agents")
 async def list_agents():
     agents = db.list_agents()
-    return [{"agent_id": a["agent_id"], "status": a["status"]} for a in agents]
+    return [{
+        "agent_id": a["agent_id"],
+        "status": a["status"],
+        "profile": a.get("profile"),
+        "user_id": a.get("user_id"),
+        "relation": a.get("relation"),
+    } for a in agents]
 
 
 @app.post("/api/agents")
@@ -241,7 +320,8 @@ async def create_agent(agent: AgentCreate):
     if agent.model not in provider_models:
         raise HTTPException(status_code=400, detail=f"Model '{agent.model}' not found in provider '{agent.provider}'")
 
-    db.create_agent(agent.agent_id, agent.provider, agent.model)
+    profile_dict = agent.profile.model_dump() if agent.profile else None
+    db.create_agent(agent.agent_id, agent.provider, agent.model, profile_dict, agent.user_id, agent.relation)
     
     return {"agent_id": agent.agent_id, "status": "active"}
 
@@ -256,6 +336,9 @@ async def get_agent(agent_id: str):
         "provider": agent["provider"],
         "model": agent["model"],
         "status": agent["status"],
+        "profile": agent.get("profile"),
+        "user_id": agent.get("user_id"),
+        "relation": agent.get("relation"),
     }
 
 
@@ -268,6 +351,239 @@ async def delete_agent(agent_id: str):
         del agents_runtime[agent_id]
     
     return {"status": "deleted"}
+
+
+@app.patch("/api/agents/{agent_id}")
+async def update_agent(agent_id: str, update: AgentUpdate):
+    if not db.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    profile_dict = update.profile.model_dump() if update.profile else None
+    db.update_agent(agent_id, profile_dict, update.user_id, update.relation)
+    
+    if agent_id in agents_runtime:
+        del agents_runtime[agent_id]
+    
+    return {"status": "updated"}
+
+
+@app.get("/api/users")
+async def list_users():
+    users = db.list_users()
+    return [{
+        "user_id": u["user_id"],
+        "profile": u.get("profile"),
+    } for u in users]
+
+
+@app.post("/api/users")
+async def create_user(user: UserCreate):
+    if db.get_user(user.user_id):
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    profile_dict = user.profile.model_dump() if user.profile else None
+    db.create_user(user.user_id, profile_dict)
+    
+    return {"user_id": user.user_id, "status": "created"}
+
+
+@app.get("/api/users/{user_id}")
+async def get_user(user_id: str):
+    user = db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "user_id": user["user_id"],
+        "profile": user.get("profile"),
+    }
+
+
+@app.patch("/api/users/{user_id}")
+async def update_user(user_id: str, update: UserUpdate):
+    if not db.get_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    profile_dict = update.profile.model_dump() if update.profile else None
+    db.update_user(user_id, profile_dict)
+    
+    return {"status": "updated"}
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: str):
+    if not db.delete_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "deleted"}
+
+
+@app.get("/api/skills")
+async def list_skills(agent_id: str | None = None):
+    def load_skills_from_dir(skills_dir: Path, builtin: bool = False) -> list[dict]:
+        if not skills_dir.exists():
+            return []
+        
+        skills = []
+        for skill_path in skills_dir.iterdir():
+            if skill_path.is_dir():
+                skill_md = skill_path / "SKILL.md"
+                if skill_md.exists():
+                    try:
+                        content = skill_md.read_text(encoding="utf-8")
+                        
+                        name = skill_path.name
+                        description = ""
+                        
+                        if content.startswith("---"):
+                            parts = content.split("---", 2)
+                            if len(parts) >= 3:
+                                frontmatter = parts[1]
+                                for line in frontmatter.strip().split("\n"):
+                                    if line.startswith("name:"):
+                                        name = line[5:].strip()
+                                    elif line.startswith("description:"):
+                                        description = line[12:].strip()
+                        
+                        skills.append({
+                            "skill_id": skill_path.name,
+                            "name": name,
+                            "description": description,
+                            "path": str(skill_path),
+                            "builtin": builtin,
+                        })
+                    except Exception:
+                        pass
+        return skills
+    
+    builtin_skills_dir = Path.home() / ".agents" / "skills"
+    
+    skills = load_skills_from_dir(builtin_skills_dir, builtin=True)
+    
+    if agent_id:
+        agent_skills_dir = workspace / agent_id / "skills"
+        skills.extend(load_skills_from_dir(agent_skills_dir, builtin=False))
+    else:
+        for agent_dir in workspace.iterdir():
+            if agent_dir.is_dir() and (agent_dir / "skills").exists():
+                skills.extend(load_skills_from_dir(agent_dir / "skills", builtin=False))
+    
+    return skills
+
+
+@app.get("/api/skills/{skill_id}")
+async def get_skill(skill_id: str, agent_id: str | None = None):
+    builtin_skills_dir = Path.home() / ".agents" / "skills"
+    
+    skill_md = None
+    builtin = False
+    
+    if agent_id:
+        agent_skill_md = workspace / agent_id / "skills" / skill_id / "SKILL.md"
+        if agent_skill_md.exists():
+            skill_md = agent_skill_md
+            builtin = False
+    
+    if not skill_md:
+        builtin_skill_md = builtin_skills_dir / skill_id / "SKILL.md"
+        if builtin_skill_md.exists():
+            skill_md = builtin_skill_md
+            builtin = True
+    
+    if not skill_md:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    
+    content = skill_md.read_text(encoding="utf-8")
+    
+    name = skill_id
+    description = ""
+    
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            frontmatter = parts[1]
+            for line in frontmatter.strip().split("\n"):
+                if line.startswith("name:"):
+                    name = line[5:].strip()
+                elif line.startswith("description:"):
+                    description = line[12:].strip()
+    
+    return {
+        "skill_id": skill_id,
+        "name": name,
+        "description": description,
+        "content": content,
+        "builtin": builtin,
+    }
+
+
+@app.delete("/api/skills/{skill_id}")
+async def delete_skill(skill_id: str, agent_id: str | None = None):
+    import shutil
+    
+    builtin_skills_dir = Path.home() / ".agents" / "skills"
+    builtin_skill_path = builtin_skills_dir / skill_id
+    if builtin_skill_path.exists():
+        raise HTTPException(status_code=403, detail="Cannot delete builtin skill")
+    
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="agent_id is required")
+    
+    skill_path = workspace / agent_id / "skills" / skill_id
+    if not skill_path.exists():
+        raise HTTPException(status_code=404, detail="Skill not found")
+    
+    shutil.rmtree(skill_path)
+    return {"status": "deleted"}
+
+
+@app.post("/api/skills/{skill_id}/invoke")
+async def invoke_skill(skill_id: str, data: SkillInvoke):
+    agent_id = data.agent_id
+    prompt = data.prompt
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="agent_id is required")
+    
+    builtin_skills_dir = Path.home() / ".agents" / "skills"
+    agent_skill_path = workspace / agent_id / "skills" / skill_id
+    
+    skill_md = None
+    skill_name = skill_id
+    
+    if agent_skill_path and (agent_skill_path / "SKILL.md").exists():
+        skill_md = agent_skill_path / "SKILL.md"
+    elif (builtin_skills_dir / skill_id / "SKILL.md").exists():
+        skill_md = builtin_skills_dir / skill_id / "SKILL.md"
+    
+    if not skill_md:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    
+    import uuid
+    session_id = str(uuid.uuid4())[:8]
+    db.create_session(session_id, agent_id, name=f"技能: {skill_name}")
+    
+    skill_content = skill_md.read_text(encoding="utf-8")
+    db.add_message(session_id, "user", f"使用{skill_name}，{prompt}")
+    
+    agent_runtime = await get_agent_runtime(agent_id)
+    
+    class TempSkill:
+        def __init__(self, content, name):
+            self.content = content
+            self.name = name
+            self.description = ""
+        def to_prompt(self):
+            return self.content
+    
+    temp_skill = TempSkill(skill_content, skill_name)
+    agent_runtime.skills = [temp_skill]
+    
+    try:
+        result = await agent_runtime.process_message("skill_user", prompt)
+        db.add_message(session_id, "assistant", result)
+    except Exception as e:
+        db.add_message(session_id, "assistant", f"执行失败: {str(e)}")
+        result = f"执行失败: {str(e)}"
+    
+    return {"session_id": session_id, "result": result}
 
 
 @app.get("/api/sessions")

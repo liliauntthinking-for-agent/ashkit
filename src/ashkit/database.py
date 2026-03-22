@@ -2,7 +2,6 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 
 class Database:
@@ -19,11 +18,20 @@ class Database:
     def _init_db(self):
         conn = self._get_conn()
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT UNIQUE NOT NULL,
+                profile TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            
             CREATE TABLE IF NOT EXISTS agents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT UNIQUE NOT NULL,
                 provider TEXT NOT NULL,
                 model TEXT NOT NULL,
+                profile TEXT,
                 status TEXT DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -52,14 +60,38 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
         """)
         conn.commit()
+        
+        cursor = conn.execute("PRAGMA table_info(agents)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if "profile" not in columns:
+            conn.execute("ALTER TABLE agents ADD COLUMN profile TEXT")
+        if "user_id" not in columns:
+            conn.execute("ALTER TABLE agents ADD COLUMN user_id TEXT REFERENCES users(user_id)")
+        if "relation" not in columns:
+            conn.execute("ALTER TABLE agents ADD COLUMN relation TEXT")
+        
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id)")
+        except sqlite3.OperationalError:
+            pass
+        
+        cursor = conn.execute("PRAGMA table_info(sessions)")
+        session_columns = [row[1] for row in cursor.fetchall()]
+        
+        if "name" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
+        
+        conn.commit()
         conn.close()
 
-    def create_agent(self, agent_id: str, provider: str, model: str) -> dict:
+    def create_agent(self, agent_id: str, provider: str, model: str, profile: dict | None = None, user_id: str | None = None, relation: str | None = None) -> dict:
         conn = self._get_conn()
         now = datetime.now().isoformat()
+        profile_json = json.dumps(profile, ensure_ascii=False) if profile else None
         conn.execute(
-            "INSERT INTO agents (agent_id, provider, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (agent_id, provider, model, now, now),
+            "INSERT INTO agents (agent_id, provider, model, profile, user_id, relation, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, provider, model, profile_json, user_id, relation, now, now),
         )
         conn.commit()
         conn.close()
@@ -71,13 +103,36 @@ class Database:
             "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
         ).fetchone()
         conn.close()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result = dict(row)
+        if result.get("profile"):
+            result["profile"] = json.loads(result["profile"])
+        return result
 
     def list_agents(self) -> list[dict]:
         conn = self._get_conn()
         rows = conn.execute("SELECT * FROM agents ORDER BY created_at DESC").fetchall()
         conn.close()
-        return [dict(row) for row in rows]
+        results = []
+        for row in rows:
+            r = dict(row)
+            if r.get("profile"):
+                r["profile"] = json.loads(r["profile"])
+            results.append(r)
+        return results
+
+    def update_agent(self, agent_id: str, profile: dict | None = None, user_id: str | None = None, relation: str | None = None) -> dict | None:
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        profile_json = json.dumps(profile, ensure_ascii=False) if profile else None
+        conn.execute(
+            "UPDATE agents SET profile = ?, user_id = ?, relation = ?, updated_at = ? WHERE agent_id = ?",
+            (profile_json, user_id, relation, now, agent_id),
+        )
+        conn.commit()
+        conn.close()
+        return self.get_agent(agent_id)
 
     def delete_agent(self, agent_id: str) -> bool:
         conn = self._get_conn()
@@ -162,6 +217,64 @@ class Database:
         conn = self._get_conn()
         conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def create_user(self, user_id: str, profile: dict | None = None) -> dict:
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        profile_json = json.dumps(profile, ensure_ascii=False) if profile else None
+        conn.execute(
+            "INSERT INTO users (user_id, profile, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (user_id, profile_json, now, now),
+        )
+        conn.commit()
+        conn.close()
+        return self.get_user(user_id)
+
+    def get_user(self, user_id: str) -> dict | None:
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        result = dict(row)
+        if result.get("profile"):
+            result["profile"] = json.loads(result["profile"])
+        return result
+
+    def list_users(self) -> list[dict]:
+        conn = self._get_conn()
+        rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+        conn.close()
+        results = []
+        for row in rows:
+            r = dict(row)
+            if r.get("profile"):
+                r["profile"] = json.loads(r["profile"])
+            results.append(r)
+        return results
+
+    def update_user(self, user_id: str, profile: dict | None = None) -> dict | None:
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        profile_json = json.dumps(profile, ensure_ascii=False) if profile else None
+        conn.execute(
+            "UPDATE users SET profile = ?, updated_at = ? WHERE user_id = ?",
+            (profile_json, now, user_id),
+        )
+        conn.commit()
+        conn.close()
+        return self.get_user(user_id)
+
+    def delete_user(self, user_id: str) -> bool:
+        conn = self._get_conn()
+        conn.execute("UPDATE agents SET user_id = NULL, relation = NULL WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         affected = conn.total_changes
         conn.commit()
         conn.close()

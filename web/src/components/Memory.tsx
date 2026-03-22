@@ -4,18 +4,13 @@ import { Brain, Database, Clock, Lightning, UploadSimple } from '@phosphor-icons
 import { useToast } from './Toast';
 import * as api from '../api/client';
 
-interface Agent {
-  agent_id: string;
-  status: string;
-}
-
 interface MemoryData {
   l1_working: { messages: { role: string; content: string }[] };
   l2_episodic: { summary: string; created_at: string }[];
   l3_semantic: { content: string }[];
 }
 
-const tabs = [
+const memoryTabs = [
   { id: 'l1' as const, label: 'L1 短期记忆', icon: Lightning, desc: '当前对话上下文' },
   { id: 'l2' as const, label: 'L2 情景记忆', icon: Clock, desc: '历史对话摘要' },
   { id: 'l3' as const, label: 'L3 语义记忆', icon: Database, desc: '长期知识存储' },
@@ -23,40 +18,38 @@ const tabs = [
 
 export function MemoryPanel() {
   const showToast = useToast();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState('');
+  const [agents, setAgents] = useState<api.Agent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [memoryData, setMemoryData] = useState<MemoryData | null>(null);
   const [activeLayer, setActiveLayer] = useState<'l1' | 'l2' | 'l3'>('l1');
   const [l3Content, setL3Content] = useState('');
 
-  const loadAgents = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const data = await api.getAgents();
-      setAgents(data);
+      const agentsData = await api.getAgents();
+      setAgents(agentsData);
+      if (agentsData.length > 0 && !selectedAgentId) {
+        setSelectedAgentId(agentsData[0].agent_id);
+      }
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [selectedAgentId]);
 
   useEffect(() => {
-    loadAgents();
-  }, [loadAgents]);
+    loadData();
+  }, [loadData]);
 
-  const handleLoadMemory = async () => {
-    if (!selectedAgent) {
-      showToast('请选择 Agent', 'error');
-      return;
+  useEffect(() => {
+    if (selectedAgentId) {
+      api.getMemory(selectedAgentId).then(setMemoryData).catch(() => setMemoryData(null));
+    } else {
+      setMemoryData(null);
     }
-    try {
-      const data = await api.getMemory(selectedAgent);
-      setMemoryData(data);
-    } catch (e: any) {
-      showToast('加载失败: ' + e.message, 'error');
-    }
-  };
+  }, [selectedAgentId]);
 
   const handleAddL3 = async () => {
-    if (!selectedAgent) {
+    if (!selectedAgentId) {
       showToast('请选择 Agent', 'error');
       return;
     }
@@ -65,12 +58,14 @@ export function MemoryPanel() {
       return;
     }
     try {
-      await api.addL3Memory(selectedAgent, l3Content.trim());
+      await api.addL3Memory(selectedAgentId, l3Content.trim());
       setL3Content('');
-      handleLoadMemory();
+      const data = await api.getMemory(selectedAgentId);
+      setMemoryData(data);
       showToast('保存成功');
-    } catch (e: any) {
-      showToast('保存失败: ' + e.message, 'error');
+    } catch (e: unknown) {
+      const error = e as Error;
+      showToast('保存失败: ' + error.message, 'error');
     }
   };
 
@@ -127,54 +122,53 @@ export function MemoryPanel() {
         </p>
       </div>
 
-      {/* Agent Selection */}
-      <div className="bg-white rounded-2xl border border-[var(--color-border)] p-6">
-        <div className="flex items-end gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-              选择 Agent
-            </label>
-            <select
-              value={selectedAgent}
-              onChange={(e) => {
-                setSelectedAgent(e.target.value);
-                setMemoryData(null);
-              }}
-              className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                focus:border-[var(--color-accent)] transition-all"
-            >
-              <option value="">请选择 Agent</option>
-              {agents.map((a) => (
-                <option key={a.agent_id} value={a.agent_id}>
-                  {a.agent_id}
-                </option>
-              ))}
-            </select>
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={handleLoadMemory}
-            disabled={!selectedAgent}
-            className="px-6 py-2.5 bg-[var(--color-accent)] text-white 
-              rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            加载记忆
-          </motion.button>
+      {/* Agent Tabs */}
+      {agents.length > 0 && (
+        <div className="flex items-center gap-2 p-1 bg-[var(--color-surface)] rounded-xl overflow-x-auto">
+          {agents.map((agent) => {
+            const isSelected = selectedAgentId === agent.agent_id;
+            return (
+              <button
+                key={agent.agent_id}
+                onClick={() => setSelectedAgentId(agent.agent_id)}
+                className={`
+                  flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all
+                  ${isSelected 
+                    ? 'bg-white text-[var(--color-accent)] shadow-sm' 
+                    : 'text-[var(--color-accent-muted)] hover:text-[var(--color-accent)] hover:bg-white/50'
+                  }
+                `}
+              >
+                {agent.profile?.name || agent.agent_id}
+              </button>
+            );
+          })}
         </div>
-      </div>
+      )}
 
       {/* Memory Display */}
-      {memoryData && (
+      {agents.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-[var(--color-border)] p-12">
+          <div className="text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--color-surface)] 
+              flex items-center justify-center">
+              <Brain className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
+            </div>
+            <h3 className="text-lg font-medium text-[var(--color-accent)] mb-1">暂无 Agent</h3>
+            <p className="text-sm text-[var(--color-accent-muted)]">
+              请先创建 Agent
+            </p>
+          </div>
+        </div>
+      ) : memoryData && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden"
         >
-          {/* Tabs */}
+          {/* Memory Tabs */}
           <div className="flex border-b border-[var(--color-border)]">
-            {tabs.map((tab) => {
+            {memoryTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeLayer === tab.id;
               return (
@@ -194,7 +188,7 @@ export function MemoryPanel() {
                   <span className="hidden sm:inline">{tab.label}</span>
                   {isActive && (
                     <motion.div
-                      layoutId="activeTab"
+                      layoutId="activeMemoryTab"
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--color-accent)]"
                     />
                   )}
@@ -237,24 +231,6 @@ export function MemoryPanel() {
             </div>
           </div>
         </motion.div>
-      )}
-
-      {/* Empty State */}
-      {!memoryData && (
-        <div className="bg-white rounded-2xl border border-[var(--color-border)] p-12">
-          <div className="text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--color-surface)] 
-              flex items-center justify-center">
-              <Brain className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
-            </div>
-            <h3 className="text-lg font-medium text-[var(--color-accent)] mb-1">
-              选择 Agent 查看记忆
-            </h3>
-            <p className="text-sm text-[var(--color-accent-muted)]">
-              三层记忆系统帮助你管理对话上下文
-            </p>
-          </div>
-        </div>
       )}
     </div>
   );

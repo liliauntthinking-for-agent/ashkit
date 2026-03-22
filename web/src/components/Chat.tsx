@@ -6,6 +6,7 @@ import {
   Spinner, User, Robot, Sparkle 
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
+import { useApp } from '../AppContext';
 import * as api from '../api/client';
 
 interface Agent {
@@ -27,6 +28,7 @@ interface Message {
 
 export function Chat() {
   const showToast = useToast();
+  const { selectedSessionId, setSelectedSessionId } = useApp();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
@@ -56,16 +58,7 @@ export function Chat() {
     }
   }, []);
 
-  useEffect(() => {
-    loadAgents();
-    loadSessions();
-  }, [loadAgents, loadSessions]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const handleSelectSession = async (sessionId: string) => {
+  const handleSelectSession = useCallback(async (sessionId: string) => {
     try {
       const session = await api.getSession(sessionId);
       setSelectedSession(sessionId);
@@ -75,7 +68,23 @@ export function Chat() {
     } catch (e) {
       console.error(e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadAgents();
+    loadSessions();
+  }, [loadAgents, loadSessions]);
+
+  useEffect(() => {
+    if (selectedSessionId) {
+      handleSelectSession(selectedSessionId);
+      setSelectedSessionId(null);
+    }
+  }, [selectedSessionId, setSelectedSessionId, handleSelectSession]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();

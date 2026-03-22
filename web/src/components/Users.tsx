@@ -1,24 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check } from '@phosphor-icons/react';
+import { UserPlus, User, IdentificationBadge, PencilSimple, Check } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import * as api from '../api/client';
 
-interface Provider {
-  name: string;
-  models: string[];
-}
-
-type Agent = api.Agent;
 type User = api.User;
-
-const errorMessages: Record<string, string> = {
-  'Agent already exists': 'Agent ID 已存在，请使用其他名称',
-  'Provider not found': 'Provider 不存在',
-  'Model not found': 'Model 不存在',
-};
-
-const translateError = (msg: string) => errorMessages[msg] || msg;
 
 const defaultProfile = {
   name: '',
@@ -32,6 +18,7 @@ const defaultProfile = {
   address: '',
   school: '',
   education: '',
+  occupation: '',
   nationality: '',
   personality: '',
   hobbies: '',
@@ -81,51 +68,22 @@ const mbtiOptions = [
   { value: 'ESFP', label: 'ESFP', desc: '表演者 - 自发的娱乐者' },
 ];
 
-const relationOptions = [
-  { value: 'friend', label: '朋友' },
-  { value: 'best_friend', label: '挚友' },
-  { value: 'partner', label: '伴侣' },
-  { value: 'assistant', label: '助手' },
-  { value: 'mentor', label: '导师' },
-  { value: 'student', label: '学生' },
-  { value: 'colleague', label: '同事' },
-  { value: 'family', label: '家人' },
-  { value: 'acquaintance', label: '熟人' },
-  { value: 'stranger', label: '陌生人' },
-];
-
-export function Agents() {
+export function Users() {
   const showToast = useToast();
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [formData, setFormData] = useState({
-    agent_id: '',
-    provider: '',
-    model: '',
-    profile: { ...defaultProfile },
     user_id: '',
-    relation: '',
+    profile: { ...defaultProfile },
   });
   const [showForm, setShowForm] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<{
-    profile: typeof defaultProfile | null;
-    user_id: string;
-    relation: string;
-  }>({ profile: null, user_id: '', relation: '' });
+  const [editProfile, setEditProfile] = useState<typeof defaultProfile | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [providersData, agentsData, usersData] = await Promise.all([
-        api.getProviders(),
-        api.getAgents(),
-        api.getUsers(),
-      ]);
-      setProviders(providersData);
-      setAgents(agentsData);
+      const usersData = await api.getUsers();
       setUsers(usersData);
     } catch (e) {
       console.error(e);
@@ -136,19 +94,9 @@ export function Agents() {
     loadData();
   }, [loadData]);
 
-  const selectedProvider = providers.find((p) => p.name === formData.provider);
-
   const handleCreate = async () => {
-    if (!formData.agent_id.trim()) {
-      showToast('请输入 Agent ID', 'error');
-      return;
-    }
-    if (!formData.provider) {
-      showToast('请选择 Provider', 'error');
-      return;
-    }
-    if (!formData.model) {
-      showToast('请选择模型', 'error');
+    if (!formData.user_id.trim()) {
+      showToast('请输入用户 ID', 'error');
       return;
     }
     try {
@@ -157,31 +105,27 @@ export function Agents() {
         height: formData.profile.height ? parseInt(formData.profile.height) : null,
         weight: formData.profile.weight ? parseInt(formData.profile.weight) : null,
       };
-      await api.createAgent({
-        agent_id: formData.agent_id.trim(),
-        provider: formData.provider,
-        model: formData.model,
+      await api.createUser({
+        user_id: formData.user_id.trim(),
         profile: profileData,
-        user_id: formData.user_id || undefined,
-        relation: formData.relation || undefined,
       });
-      setFormData({ agent_id: '', provider: '', model: '', profile: { ...defaultProfile }, user_id: '', relation: '' });
+      setFormData({ user_id: '', profile: { ...defaultProfile } });
       setShowForm(false);
       loadData();
       showToast('创建成功');
     } catch (e: unknown) {
       const error = e as Error;
-      showToast(translateError(error.message), 'error');
+      showToast(error.message, 'error');
     }
   };
 
-  const handleView = async (agent: Agent) => {
+  const handleView = async (user: User) => {
     try {
-      const detail = await api.getAgent(agent.agent_id);
-      setSelectedAgent(detail);
+      const detail = await api.getUser(user.user_id);
+      setSelectedUser(detail);
       setShowDetail(true);
       setIsEditing(false);
-      setEditData({ profile: null, user_id: '', relation: '' });
+      setEditProfile(null);
     } catch (e: unknown) {
       const error = e as Error;
       showToast(error.message, 'error');
@@ -189,38 +133,30 @@ export function Agents() {
   };
 
   const handleEdit = () => {
-    if (selectedAgent?.profile) {
-      setEditData({
-        profile: {
-          ...defaultProfile,
-          ...selectedAgent.profile,
-          height: selectedAgent.profile.height?.toString() || '',
-          weight: selectedAgent.profile.weight?.toString() || '',
-        },
-        user_id: selectedAgent.user_id || '',
-        relation: selectedAgent.relation || '',
+    if (selectedUser?.profile) {
+      setEditProfile({
+        ...defaultProfile,
+        ...selectedUser.profile,
+        height: selectedUser.profile.height?.toString() || '',
+        weight: selectedUser.profile.weight?.toString() || '',
       });
       setIsEditing(true);
     }
   };
 
   const handleUpdate = async () => {
-    if (!selectedAgent || !editData.profile) return;
+    if (!selectedUser || !editProfile) return;
     try {
       const profileData = {
-        ...editData.profile,
-        height: editData.profile.height ? parseInt(editData.profile.height) : null,
-        weight: editData.profile.weight ? parseInt(editData.profile.weight) : null,
+        ...editProfile,
+        height: editProfile.height ? parseInt(editProfile.height) : null,
+        weight: editProfile.weight ? parseInt(editProfile.weight) : null,
       };
-      await api.updateAgent(selectedAgent.agent_id, {
-        profile: profileData,
-        user_id: editData.user_id || undefined,
-        relation: editData.relation || undefined,
-      });
-      const detail = await api.getAgent(selectedAgent.agent_id);
-      setSelectedAgent(detail);
+      await api.updateUser(selectedUser.user_id, profileData);
+      const detail = await api.getUser(selectedUser.user_id);
+      setSelectedUser(detail);
       setIsEditing(false);
-      setEditData({ profile: null, user_id: '', relation: '' });
+      setEditProfile(null);
       loadData();
       showToast('更新成功');
     } catch (e: unknown) {
@@ -230,11 +166,8 @@ export function Agents() {
   };
 
   const updateEditProfile = (key: string, value: string) => {
-    if (!editData.profile) return;
-    setEditData({
-      ...editData,
-      profile: { ...editData.profile, [key]: value },
-    });
+    if (!editProfile) return;
+    setEditProfile({ ...editProfile, [key]: value });
   };
 
   const updateProfile = (key: string, value: string) => {
@@ -250,10 +183,10 @@ export function Agents() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-accent)]">
-            Agent 管理
+            用户档案
           </h1>
           <p className="text-sm text-[var(--color-accent-muted)] mt-1">
-            创建和管理你的 AI 助手
+            创建和管理用户档案信息
           </p>
         </div>
         <motion.button
@@ -263,8 +196,8 @@ export function Agents() {
           className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-accent)] text-white 
             rounded-xl font-medium text-sm shadow-lg shadow-[var(--color-accent)]/10"
         >
-          <Plus className="w-4 h-4" weight="bold" />
-          创建 Agent
+          <UserPlus className="w-4 h-4" weight="bold" />
+          创建用户
         </motion.button>
       </div>
 
@@ -278,117 +211,27 @@ export function Agents() {
         className="overflow-hidden"
       >
         <div className="bg-white rounded-2xl border border-[var(--color-border)] p-6 space-y-6">
-          <h3 className="text-base font-semibold text-[var(--color-accent)]">创建新 Agent</h3>
+          <h3 className="text-base font-semibold text-[var(--color-accent)]">创建新用户</h3>
           
-          {/* Basic Settings */}
+          {/* User ID */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-accent)]">
               <IdentificationBadge className="w-4 h-4" />
-              基本设置
+              基本信息
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  Agent ID <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="输入唯一标识符"
-                  value={formData.agent_id}
-                  onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                    focus:border-[var(--color-accent)] transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  Provider <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.provider}
-                  onChange={(e) => setFormData({ ...formData, provider: e.target.value, model: '' })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                >
-                  <option value="">选择 Provider</option>
-                  {providers.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  模型 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.model}
-                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                  disabled={!formData.provider}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                    disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="">
-                    {!formData.provider
-                      ? '请先选择 Provider'
-                      : selectedProvider?.models.length === 0
-                      ? '该 Provider 暂无模型'
-                      : '选择模型'}
-                  </option>
-                  {selectedProvider?.models.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* User Relation Settings */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-accent)]">
-              <Users className="w-4 h-4" />
-              用户关系
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  关联用户
-                </label>
-                <select
-                  value={formData.user_id}
-                  onChange={(e) => setFormData({ ...formData, user_id: e.target.value, relation: '' })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                >
-                  <option value="">不关联用户</option>
-                  {users.map((u) => (
-                    <option key={u.user_id} value={u.user_id}>
-                      {u.profile?.name || u.user_id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  与用户的关系
-                </label>
-                <select
-                  value={formData.relation}
-                  onChange={(e) => setFormData({ ...formData, relation: e.target.value })}
-                  disabled={!formData.user_id}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                    disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="">
-                    {!formData.user_id ? '请先选择用户' : '请选择关系'}
-                  </option>
-                  {relationOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="w-full md:w-1/3">
+              <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                用户 ID <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="输入唯一标识符"
+                value={formData.user_id}
+                onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                  rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                  focus:border-[var(--color-accent)] transition-all"
+              />
             </div>
           </div>
 
@@ -589,6 +432,22 @@ export function Agents() {
                 </select>
               </div>
               
+              {/* 职业 */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                  职业
+                </label>
+                <input
+                  type="text"
+                  placeholder="当前职业"
+                  value={formData.profile.occupation}
+                  onChange={(e) => updateProfile('occupation', e.target.value)}
+                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                    focus:border-[var(--color-accent)] transition-all"
+                />
+              </div>
+              
               {/* 国籍 */}
               <div>
                 <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
@@ -654,7 +513,7 @@ export function Agents() {
               </div>
             </div>
             
-            {/* MBTI - Full width with description */}
+            {/* MBTI */}
             <div>
               <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
                 MBTI 人格类型
@@ -672,7 +531,7 @@ export function Agents() {
               </select>
             </div>
             
-            {/* Background - Full width textarea */}
+            {/* Background */}
             <div>
               <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
                 背景故事
@@ -712,62 +571,51 @@ export function Agents() {
         </div>
       </motion.div>
 
-      {/* Agent List */}
-      {agents.length === 0 ? (
+      {/* User List */}
+      {users.length === 0 ? (
         <div className="bg-white rounded-2xl border border-[var(--color-border)] p-12">
           <div className="text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--color-surface)] 
               flex items-center justify-center">
-              <Cube className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
+              <User className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
             </div>
-            <h3 className="text-lg font-medium text-[var(--color-accent)] mb-1">暂无 Agent</h3>
+            <h3 className="text-lg font-medium text-[var(--color-accent)] mb-1">暂无用户</h3>
             <p className="text-sm text-[var(--color-accent-muted)]">
-              创建你的第一个 AI 助手
+              创建你的第一个用户档案
             </p>
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {agents.map((a, index) => (
+          {users.map((u, index) => (
             <motion.div
-              key={a.agent_id}
+              key={u.user_id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
-              onClick={() => handleView(a)}
+              onClick={() => handleView(u)}
               className="group bg-white rounded-2xl border border-[var(--color-border)] p-5
                 hover:border-[var(--color-border-strong)] transition-colors cursor-pointer"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[var(--color-surface)] 
-                    flex items-center justify-center">
-                    <User className="w-5 h-5 text-[var(--color-accent)]" weight="duotone" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-[var(--color-accent)]">
-                      {a.profile?.name || a.agent_id}
-                    </h3>
-                    {a.profile?.name && (
-                      <p className="text-xs text-[var(--color-accent-muted)]">{a.agent_id}</p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[var(--color-surface)] 
+                  flex items-center justify-center flex-shrink-0">
+                  <User className="w-5 h-5 text-[var(--color-accent)]" weight="duotone" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-medium text-[var(--color-accent)]">
+                    {u.profile?.name || u.user_id}
+                  </h3>
+                  {u.profile?.name && (
+                    <p className="text-xs text-[var(--color-accent-muted)]">{u.user_id}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {u.profile?.occupation && (
+                      <span className="text-xs text-[var(--color-accent-muted)]">{u.profile.occupation}</span>
                     )}
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <div className="flex items-center gap-1">
-                        <Circle 
-                          className="w-2 h-2 text-emerald-500" 
-                          weight="fill" 
-                        />
-                        <span className="text-xs text-[var(--color-accent-muted)]">{a.status}</span>
-                      </div>
-                      {a.profile?.school && (
-                        <span className="text-xs text-[var(--color-accent-muted)]">· {a.profile.school}</span>
-                      )}
-                      {a.user_id && a.relation && (
-                        <span className="text-xs text-[var(--color-accent-muted)]">
-                          · {relationOptions.find(r => r.value === a.relation)?.label || a.relation}
-                        </span>
-                      )}
-                    </div>
+                    {u.profile?.school && (
+                      <span className="text-xs text-[var(--color-accent-muted)]">· {u.profile.school}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -776,8 +624,8 @@ export function Agents() {
         </div>
       )}
 
-      {/* Agent Detail Modal */}
-      {showDetail && selectedAgent && (
+      {/* User Detail Modal */}
+      {showDetail && selectedUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -792,9 +640,9 @@ export function Agents() {
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-[var(--color-accent)]">
-                    {isEditing ? '编辑 Agent' : (selectedAgent.profile?.name || selectedAgent.agent_id)}
+                    {isEditing ? '编辑用户' : (selectedUser.profile?.name || selectedUser.user_id)}
                   </h2>
-                  <p className="text-sm text-[var(--color-accent-muted)]">{selectedAgent.agent_id}</p>
+                  <p className="text-sm text-[var(--color-accent-muted)]">{selectedUser.user_id}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -814,7 +662,7 @@ export function Agents() {
                   onClick={() => {
                     setShowDetail(false);
                     setIsEditing(false);
-                    setEditData({ profile: null, user_id: '', relation: '' });
+                    setEditProfile(null);
                   }}
                   className="p-2 rounded-lg hover:bg-[var(--color-surface)]"
                 >
@@ -825,174 +673,139 @@ export function Agents() {
             
             {!isEditing ? (
               <div className="space-y-6">
-                {/* Basic Info */}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div className="bg-[var(--color-surface)] rounded-xl p-4">
-                    <label className="text-xs text-[var(--color-accent-muted)]">Provider</label>
-                    <p className="text-sm font-medium text-[var(--color-accent)]">{selectedAgent.provider}</p>
-                  </div>
-                  <div className="bg-[var(--color-surface)] rounded-xl p-4">
-                    <label className="text-xs text-[var(--color-accent-muted)]">Model</label>
-                    <p className="text-sm font-medium text-[var(--color-accent)]">{selectedAgent.model}</p>
-                  </div>
-                  <div className="bg-[var(--color-surface)] rounded-xl p-4">
-                    <label className="text-xs text-[var(--color-accent-muted)]">Status</label>
-                    <p className="text-sm font-medium text-[var(--color-accent)] flex items-center gap-1">
-                      <Circle className="w-2 h-2 text-emerald-500" weight="fill" />
-                      {selectedAgent.status}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Profile Info */}
-                {selectedAgent.profile && (
+                {selectedUser.profile && (
                   <div>
                     <h3 className="text-sm font-semibold text-[var(--color-accent)] mb-3">人物档案</h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {selectedAgent.profile.name && (
+                      {selectedUser.profile.name && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">姓名</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.name}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.name}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.nickname && (
+                      {selectedUser.profile.nickname && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">昵称</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.nickname}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.nickname}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.gender && (
+                      {selectedUser.profile.gender && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">性别</label>
                           <p className="text-sm text-[var(--color-accent)]">
-                            {genderOptions.find(g => g.value === selectedAgent.profile?.gender)?.label || selectedAgent.profile.gender}
+                            {genderOptions.find(g => g.value === selectedUser.profile?.gender)?.label || selectedUser.profile.gender}
                           </p>
                         </div>
                       )}
-                      {selectedAgent.profile.birthday && (
+                      {selectedUser.profile.birthday && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">生日</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.birthday}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.birthday}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.height && (
+                      {selectedUser.profile.height && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">身高</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.height} cm</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.height} cm</p>
                         </div>
                       )}
-                      {selectedAgent.profile.weight && (
+                      {selectedUser.profile.weight && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">体重</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.weight} kg</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.weight} kg</p>
                         </div>
                       )}
-                      {selectedAgent.profile.blood_type && (
+                      {selectedUser.profile.blood_type && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">血型</label>
                           <p className="text-sm text-[var(--color-accent)]">
-                            {bloodTypeOptions.find(b => b.value === selectedAgent.profile?.blood_type)?.label || selectedAgent.profile.blood_type}
+                            {bloodTypeOptions.find(b => b.value === selectedUser.profile?.blood_type)?.label || selectedUser.profile.blood_type}
                           </p>
                         </div>
                       )}
-                      {selectedAgent.profile.email && (
+                      {selectedUser.profile.email && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">邮箱</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.email}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.email}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.address && (
+                      {selectedUser.profile.address && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">住址</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.address}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.address}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.school && (
+                      {selectedUser.profile.school && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">学校</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.school}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.school}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.education && (
+                      {selectedUser.profile.education && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">学历</label>
                           <p className="text-sm text-[var(--color-accent)]">
-                            {educationOptions.find(e => e.value === selectedAgent.profile?.education)?.label || selectedAgent.profile.education}
+                            {educationOptions.find(e => e.value === selectedUser.profile?.education)?.label || selectedUser.profile.education}
                           </p>
                         </div>
                       )}
-                      {selectedAgent.profile.nationality && (
+                      {selectedUser.profile.occupation && (
+                        <div>
+                          <label className="text-xs text-[var(--color-accent-muted)]">职业</label>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.occupation}</p>
+                        </div>
+                      )}
+                      {selectedUser.profile.nationality && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">国籍</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.nationality}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.nationality}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.personality && (
+                      {selectedUser.profile.personality && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">性格</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.personality}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.personality}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.hobbies && (
+                      {selectedUser.profile.hobbies && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">爱好</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.hobbies}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.hobbies}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.skills && (
+                      {selectedUser.profile.skills && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">技能</label>
-                          <p className="text-sm text-[var(--color-accent)]">{selectedAgent.profile.skills}</p>
+                          <p className="text-sm text-[var(--color-accent)]">{selectedUser.profile.skills}</p>
                         </div>
                       )}
-                      {selectedAgent.profile.mbti && (
+                      {selectedUser.profile.mbti && (
                         <div>
                           <label className="text-xs text-[var(--color-accent-muted)]">MBTI</label>
                           <p className="text-sm text-[var(--color-accent)]">
-                            {mbtiOptions.find(m => m.value === selectedAgent.profile?.mbti)?.desc || selectedAgent.profile.mbti}
+                            {mbtiOptions.find(m => m.value === selectedUser.profile?.mbti)?.desc || selectedUser.profile.mbti}
                           </p>
                         </div>
                       )}
                     </div>
-                    {selectedAgent.profile.background && (
+                    {selectedUser.profile.background && (
                       <div className="mt-4">
-                      <label className="text-xs text-[var(--color-accent-muted)]">背景故事</label>
-                      <p className="text-sm text-[var(--color-accent)] mt-1">{selectedAgent.profile.background}</p>
-                    </div>
+                        <label className="text-xs text-[var(--color-accent-muted)]">背景故事</label>
+                        <p className="text-sm text-[var(--color-accent)] mt-1">{selectedUser.profile.background}</p>
+                      </div>
                     )}
                   </div>
                 )}
-
-                {/* User Relation */}
-                {selectedAgent.user_id && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-[var(--color-accent)] mb-3">用户关系</h3>
-                    <div className="bg-[var(--color-surface)] rounded-xl p-4">
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-[var(--color-accent-muted)]" />
-                        <span className="text-sm text-[var(--color-accent)]">
-                          关联用户: {selectedAgent.user_id}
-                        </span>
-                        {selectedAgent.relation && (
-                          <span className="text-sm text-[var(--color-accent-muted)]">
-                            · {relationOptions.find(r => r.value === selectedAgent.relation)?.label || selectedAgent.relation}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
+                
                 </div>
             ) : (
               <div className="space-y-4">
-                {/* Profile Edit Form */}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">姓名</label>
                     <input
                       type="text"
-                      value={editData.profile?.name || ''}
+                      value={editProfile?.name || ''}
                       onChange={(e) => updateEditProfile('name', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1002,7 +815,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">昵称</label>
                     <input
                       type="text"
-                      value={editData.profile?.nickname || ''}
+                      value={editProfile?.nickname || ''}
                       onChange={(e) => updateEditProfile('nickname', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1011,7 +824,7 @@ export function Agents() {
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">性别</label>
                     <select
-                      value={editData.profile?.gender || ''}
+                      value={editProfile?.gender || ''}
                       onChange={(e) => updateEditProfile('gender', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1026,7 +839,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">生日</label>
                     <input
                       type="date"
-                      value={editData.profile?.birthday || ''}
+                      value={editProfile?.birthday || ''}
                       onChange={(e) => updateEditProfile('birthday', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1036,7 +849,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">身高 (cm)</label>
                     <input
                       type="number"
-                      value={editData.profile?.height || ''}
+                      value={editProfile?.height || ''}
                       onChange={(e) => updateEditProfile('height', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1046,7 +859,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">体重 (kg)</label>
                     <input
                       type="number"
-                      value={editData.profile?.weight || ''}
+                      value={editProfile?.weight || ''}
                       onChange={(e) => updateEditProfile('weight', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1055,7 +868,7 @@ export function Agents() {
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">血型</label>
                     <select
-                      value={editData.profile?.blood_type || ''}
+                      value={editProfile?.blood_type || ''}
                       onChange={(e) => updateEditProfile('blood_type', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1070,7 +883,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">邮箱</label>
                     <input
                       type="email"
-                      value={editData.profile?.email || ''}
+                      value={editProfile?.email || ''}
                       onChange={(e) => updateEditProfile('email', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1080,7 +893,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">住址</label>
                     <input
                       type="text"
-                      value={editData.profile?.address || ''}
+                      value={editProfile?.address || ''}
                       onChange={(e) => updateEditProfile('address', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1090,7 +903,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">学校</label>
                     <input
                       type="text"
-                      value={editData.profile?.school || ''}
+                      value={editProfile?.school || ''}
                       onChange={(e) => updateEditProfile('school', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1099,7 +912,7 @@ export function Agents() {
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">学历</label>
                     <select
-                      value={editData.profile?.education || ''}
+                      value={editProfile?.education || ''}
                       onChange={(e) => updateEditProfile('education', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1111,10 +924,20 @@ export function Agents() {
                     </select>
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">职业</label>
+                    <input
+                      type="text"
+                      value={editProfile?.occupation || ''}
+                      onChange={(e) => updateEditProfile('occupation', e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                        rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
+                    />
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">国籍</label>
                     <input
                       type="text"
-                      value={editData.profile?.nationality || ''}
+                      value={editProfile?.nationality || ''}
                       onChange={(e) => updateEditProfile('nationality', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1124,7 +947,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">性格</label>
                     <input
                       type="text"
-                      value={editData.profile?.personality || ''}
+                      value={editProfile?.personality || ''}
                       onChange={(e) => updateEditProfile('personality', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1134,7 +957,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">爱好</label>
                     <input
                       type="text"
-                      value={editData.profile?.hobbies || ''}
+                      value={editProfile?.hobbies || ''}
                       onChange={(e) => updateEditProfile('hobbies', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1144,7 +967,7 @@ export function Agents() {
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">技能</label>
                     <input
                       type="text"
-                      value={editData.profile?.skills || ''}
+                      value={editProfile?.skills || ''}
                       onChange={(e) => updateEditProfile('skills', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1153,7 +976,7 @@ export function Agents() {
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">MBTI</label>
                     <select
-                      value={editData.profile?.mbti || ''}
+                      value={editProfile?.mbti || ''}
                       onChange={(e) => updateEditProfile('mbti', e.target.value)}
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
@@ -1168,48 +991,12 @@ export function Agents() {
                 <div>
                   <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">背景故事</label>
                   <textarea
-                    value={editData.profile?.background || ''}
+                    value={editProfile?.background || ''}
                     onChange={(e) => updateEditProfile('background', e.target.value)}
                     rows={3}
                     className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                       rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-none"
                   />
-                </div>
-
-                {/* User Relation Edit */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">关联用户</label>
-                    <select
-                      value={editData.user_id}
-                      onChange={(e) => setEditData({ ...editData, user_id: e.target.value })}
-                      className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                        rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                    >
-                      <option value="">不关联用户</option>
-                      {users.map((u) => (
-                        <option key={u.user_id} value={u.user_id}>
-                          {u.profile?.name || u.user_id}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">与用户的关系</label>
-                    <select
-                      value={editData.relation}
-                      onChange={(e) => setEditData({ ...editData, relation: e.target.value })}
-                      disabled={!editData.user_id}
-                      className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                        rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                        disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <option value="">{!editData.user_id ? '请先选择用户' : '请选择关系'}</option>
-                      {relationOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
                 
                 <div className="flex gap-3 pt-4 border-t border-[var(--color-border)]">
@@ -1228,7 +1015,7 @@ export function Agents() {
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
                       setIsEditing(false);
-                      setEditData({ profile: null, user_id: '', relation: '' });
+                      setEditProfile(null);
                     }}
                     className="px-4 py-2 rounded-lg bg-[var(--color-surface)] text-[var(--color-accent-muted)]
                       font-medium text-sm"
