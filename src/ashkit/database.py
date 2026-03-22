@@ -108,6 +108,8 @@ class Database:
         result = dict(row)
         if result.get("profile"):
             result["profile"] = json.loads(result["profile"])
+        if result.get("mcp_servers"):
+            result["mcp_servers"] = json.loads(result["mcp_servers"])
         return result
 
     def list_agents(self) -> list[dict]:
@@ -119,16 +121,19 @@ class Database:
             r = dict(row)
             if r.get("profile"):
                 r["profile"] = json.loads(r["profile"])
+            if r.get("mcp_servers"):
+                r["mcp_servers"] = json.loads(r["mcp_servers"])
             results.append(r)
         return results
 
-    def update_agent(self, agent_id: str, profile: dict | None = None, user_id: str | None = None, relation: str | None = None) -> dict | None:
+    def update_agent(self, agent_id: str, profile: dict | None = None, user_id: str | None = None, relation: str | None = None, mcp_servers: list[str] | None = None) -> dict | None:
         conn = self._get_conn()
         now = datetime.now().isoformat()
         profile_json = json.dumps(profile, ensure_ascii=False) if profile else None
+        mcp_servers_json = json.dumps(mcp_servers, ensure_ascii=False) if mcp_servers else None
         conn.execute(
-            "UPDATE agents SET profile = ?, user_id = ?, relation = ?, updated_at = ? WHERE agent_id = ?",
-            (profile_json, user_id, relation, now, agent_id),
+            "UPDATE agents SET profile = ?, user_id = ?, relation = ?, mcp_servers = ?, updated_at = ? WHERE agent_id = ?",
+            (profile_json, user_id, relation, mcp_servers_json, now, agent_id),
         )
         conn.commit()
         conn.close()

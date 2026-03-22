@@ -80,6 +80,7 @@ class AgentUpdate(BaseModel):
     profile: AgentProfile | None = None
     user_id: str | None = None
     relation: str | None = None
+    mcp_servers: list[str] | None = None
 
 
 class UserCreate(BaseModel):
@@ -145,6 +146,7 @@ async def get_agent_runtime(agent_id: str) -> Any:
         agent_config["profile"] = agent_info.get("profile")
         agent_config["user_id"] = agent_info.get("user_id")
         agent_config["relation"] = agent_info.get("relation")
+        agent_config["mcp_servers"] = agent_info.get("mcp_servers")
         
         if agent_info.get("user_id"):
             user_info = db.get_user(agent_info["user_id"])
@@ -304,6 +306,7 @@ async def list_agents():
         "profile": a.get("profile"),
         "user_id": a.get("user_id"),
         "relation": a.get("relation"),
+        "mcp_servers": a.get("mcp_servers"),
     } for a in agents]
 
 
@@ -339,6 +342,7 @@ async def get_agent(agent_id: str):
         "profile": agent.get("profile"),
         "user_id": agent.get("user_id"),
         "relation": agent.get("relation"),
+        "mcp_servers": agent.get("mcp_servers"),
     }
 
 
@@ -359,7 +363,7 @@ async def update_agent(agent_id: str, update: AgentUpdate):
         raise HTTPException(status_code=404, detail="Agent not found")
     
     profile_dict = update.profile.model_dump() if update.profile else None
-    db.update_agent(agent_id, profile_dict, update.user_id, update.relation)
+    db.update_agent(agent_id, profile_dict, update.user_id, update.relation, update.mcp_servers)
     
     if agent_id in agents_runtime:
         del agents_runtime[agent_id]
@@ -758,6 +762,43 @@ async def update_settings(settings: SettingsUpdate):
     config.set("tools.enabled", settings.tools_enabled)
     config.save()
     return {"status": "saved"}
+
+
+class MCPServerConfig(BaseModel):
+    command: str
+    args: list[str] = []
+    env: dict[str, str] | None = None
+    proxy: str | None = None
+
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers():
+    return config.get("mcp.servers", {})
+
+
+@app.post("/api/mcp/servers/{name}")
+async def add_mcp_server(name: str, server_config: MCPServerConfig):
+    servers = config.get("mcp.servers", {})
+    servers[name] = server_config.model_dump()
+    config.set("mcp.servers", servers)
+    config.save()
+    return {"status": "added", "name": name}
+
+
+@app.delete("/api/mcp/servers/{name}")
+async def delete_mcp_server(name: str):
+    servers = config.get("mcp.servers", {})
+    if name in servers:
+        del servers[name]
+        config.set("mcp.servers", servers)
+        config.save()
+    return {"status": "deleted"}
+
+
+@app.get("/api/mcp/tools")
+async def get_mcp_tools():
+    from .mcp_client import list_all_mcp_tools
+    return await list_all_mcp_tools()
 
 
 @app.get("/")

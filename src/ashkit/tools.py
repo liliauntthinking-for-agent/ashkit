@@ -161,13 +161,19 @@ class MCPTool(BaseTool):
                 "tool": {
                     "type": "string",
                     "description": "The tool name to execute"
+                },
+                "arguments": {
+                    "type": "object",
+                    "description": "The arguments to pass to the tool",
+                    "default": {}
                 }
             },
             "required": ["server", "tool"]
         }
 
-    async def execute(self, server: str, tool: str, **kwargs) -> Any:
-        return f"MCP tool execution not implemented yet: {server}.{tool}"
+    async def execute(self, server: str, tool: str, arguments: dict | None = None, **kwargs) -> Any:
+        from .mcp_client import call_mcp_tool
+        return await call_mcp_tool(server, tool, arguments or kwargs or {})
 
 
 _TOOL_REGISTRY = {}

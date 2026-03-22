@@ -229,6 +229,7 @@ class Agent:
         self.user_id = config.get("user_id")
         self.relation = config.get("relation")
         self.user_profile = config.get("user_profile") or {}
+        self.mcp_servers = config.get("mcp_servers") or []
         self.llm = LLMClient(config)
         self.tools = []
         self.skills = []
@@ -265,7 +266,7 @@ class Agent:
 
         context = await self.memory.get_context(self.agent_id, user_id, self.llm)
 
-        system_prompt = self._build_system_prompt()
+        system_prompt = await self._build_system_prompt()
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context)
         messages.append({"role": "user", "content": message})
@@ -345,7 +346,7 @@ class Agent:
                 },
             )
 
-        system_prompt = self._build_system_prompt()
+        system_prompt = await self._build_system_prompt()
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context)
         messages.append({"role": "user", "content": message})
@@ -371,6 +372,11 @@ class Agent:
             # 有工具调用
             tool_call_count += 1
             logger.info(f"Stream tool call round {tool_call_count}/{max_calls}")
+            
+            # 发送思考内容（如果有）
+            thinking_content = response.get("content", "")
+            if thinking_content:
+                yield f"__THINKING__{json.dumps(thinking_content, ensure_ascii=False)}__THINKING_END__"
             
             # 发送工具调用开始事件
             tool_calls_info = [
@@ -408,8 +414,14 @@ class Agent:
                 # 发送工具执行结果事件
                 yield f"__TOOL_RESULT__{json.dumps({'name': tool_name, 'args': tool_args, 'result': str(tool_result)}, ensure_ascii=False)}__TOOL_END__"
         
+        # 如果达到最大调用次数或最后有工具调用，让 LLM 生成最终回复
         if tool_call_count >= max_calls:
-            yield "\n[已达到最大工具调用次数限制]\n"
+            yield f"__THINKING__{json.dumps('已达到最大工具调用次数限制，正在生成最终回复...', ensure_ascii=False)}__THINKING_END__"
+        
+        # 生成最终回复
+        async for chunk in self.llm.chat_stream(messages):
+            full_response += chunk
+            yield chunk
         
         await self._persist_session(session_id, full_response)
 
@@ -451,7 +463,7 @@ class Agent:
         except Exception as e:
             logger.warning(f"Failed to extract semantic memory: {e}")
 
-    def _build_system_prompt(self) -> str:
+    async def _build_system_prompt(self) -> str:
         from .tools import get_all_tools
         import platform
         import os
@@ -564,6 +576,28 @@ You have direct access to the user's local file system and can execute shell com
             for tool in tools:
                 prompt += f"\n{tool.name}: {tool.description}\n"
             prompt += "\nWhen you need to use a tool, respond with a tool call in the format specified by the API."
+        
+        # Add MCP tools info
+        if self.mcp_servers:
+            prompt += "\n\nMCP TOOLS AVAILABLE:\n"
+            prompt += "You have access to MCP (Model Context Protocol) tools. Use the 'mcp' tool with these parameters:\n"
+            prompt += "- server: The MCP server name\n"
+            prompt += "- tool: The tool name to execute\n"
+            prompt += "- arguments: The arguments object for the tool\n\n"
+            prompt += "Available MCP servers and their tools:\n"
+            
+            try:
+                from .mcp_client import list_mcp_tools
+                for server_name in self.mcp_servers:
+                    tools_list = await list_mcp_tools(server_name)
+                    if tools_list:
+                        prompt += f"\n{server_name}:\n"
+                        for t in tools_list:
+                            desc = t.get("description", "")[:100]
+                            prompt += f"  - {t['name']}: {desc}\n"
+            except Exception as e:
+                logger.warning(f"Failed to list MCP tools: {e}")
+                prompt += f"\nEnabled MCP servers: {', '.join(self.mcp_servers)}\n"
         
         if self.skills:
             prompt += "\n\nAvailable skills:\n"

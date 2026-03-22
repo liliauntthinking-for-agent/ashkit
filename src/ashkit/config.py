@@ -31,6 +31,9 @@ DEFAULT_CONFIG = {
         "max_calls": 10,
         "enabled": True,
     },
+    "mcp": {
+        "servers": {}
+    },
     "gateway": {
         "host": "127.0.0.1",
         "port": 38471,

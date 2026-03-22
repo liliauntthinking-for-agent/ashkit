@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { 
   ChatCircle, Plus, Trash, PaperPlaneTilt, 
-  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -25,18 +25,66 @@ interface ToolCall {
   name: string;
   args: string;
   result?: string;
+  status?: 'pending' | 'success' | 'error';
   expanded?: boolean;
+}
+
+interface ThinkingBlock {
+  content: string;
+  expanded?: boolean;
+}
+
+interface TimelineEvent {
+  type: 'thinking' | 'tool';
+  data: ThinkingBlock | ToolCall;
 }
 
 interface Message {
   role: string;
   content: string;
-  toolCalls?: ToolCall[];
+  timeline?: TimelineEvent[];
+}
+
+function ThinkingCard({ thinking, onToggle }: { thinking: ThinkingBlock; onToggle: () => void }) {
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg mb-2 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-amber-100/50 transition-colors"
+      >
+        {thinking.expanded ? (
+          <CaretDown className="w-4 h-4 text-amber-600" />
+        ) : (
+          <CaretRight className="w-4 h-4 text-amber-600" />
+        )}
+        <Brain className="w-4 h-4 text-amber-600" weight="duotone" />
+        <span className="font-medium text-amber-700">思考过程</span>
+      </button>
+      <AnimatePresence>
+        {thinking.expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="border-t border-amber-200"
+          >
+            <div className="p-3">
+              <pre className="text-xs text-amber-800 whitespace-pre-wrap">{thinking.content}</pre>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 function ToolCallCard({ toolCall, onToggle }: { toolCall: ToolCall; onToggle: () => void }) {
+  const statusColor = toolCall.status === 'error' ? 'text-red-600' : toolCall.status === 'success' ? 'text-green-600' : 'text-amber-600';
+  const statusIcon = toolCall.status === 'error' ? '✗' : toolCall.status === 'success' ? '✓' : '⟳';
+  
   return (
-    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg mb-2 overflow-hidden">
+    <div className={`bg-[var(--color-surface)] border rounded-lg mb-2 overflow-hidden ${toolCall.status === 'error' ? 'border-red-200' : 'border-[var(--color-border)]'}`}>
       <button
         onClick={onToggle}
         className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-white/50 transition-colors"
@@ -48,8 +96,8 @@ function ToolCallCard({ toolCall, onToggle }: { toolCall: ToolCall; onToggle: ()
         )}
         <Wrench className="w-4 h-4 text-[var(--color-accent)]" weight="duotone" />
         <span className="font-medium text-[var(--color-accent)]">{toolCall.name}</span>
-        {toolCall.result !== undefined && (
-          <span className="text-xs text-green-600 ml-auto">✓ 完成</span>
+        {toolCall.status && (
+          <span className={`text-xs ml-auto ${statusColor}`}>{statusIcon} {toolCall.status}</span>
         )}
       </button>
       <AnimatePresence>
@@ -71,7 +119,7 @@ function ToolCallCard({ toolCall, onToggle }: { toolCall: ToolCall; onToggle: ()
               {toolCall.result !== undefined && (
                 <div>
                   <div className="text-xs font-medium text-[var(--color-accent-muted)] mb-1">结果</div>
-                  <pre className="text-xs bg-white/50 p-2 rounded border border-[var(--color-border)] overflow-x-auto max-h-40 overflow-y-auto">
+                  <pre className={`text-xs p-2 rounded border overflow-x-auto max-h-40 overflow-y-auto ${toolCall.status === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white/50 border-[var(--color-border)]'}`}>
                     {toolCall.result}
                   </pre>
                 </div>
@@ -228,22 +276,36 @@ export function Chat() {
     try {
       if (streamMode) {
         let responseText = '';
-        let toolCalls: ToolCall[] = [];
-        const streamMessages = [...newMessages, { role: 'assistant' as const, content: '', toolCalls: [] }];
+        let timeline: TimelineEvent[] = [];
+        const streamMessages = [...newMessages, { role: 'assistant' as const, content: '', timeline: [] }];
         messagesMapRef.current.set(sessionId, streamMessages);
         if (selectedSessionRef.current === sessionId) {
           setMessages(streamMessages);
         }
 
         for await (const event of api.streamMessage(sessionId, userMessage)) {
-          if (event.type === 'content' && event.content) {
+          if (event.type === 'thinking' && event.thinking) {
+            timeline = [...timeline, { type: 'thinking' as const, data: { content: event.thinking, expanded: false } }];
+            const updated = messagesMapRef.current.get(sessionId) || [];
+            if (updated.length > 0) {
+              updated[updated.length - 1] = { 
+                role: 'assistant', 
+                content: responseText,
+                timeline
+              };
+              messagesMapRef.current.set(sessionId, [...updated]);
+              if (selectedSessionRef.current === sessionId) {
+                setMessages([...updated]);
+              }
+            }
+          } else if (event.type === 'content' && event.content) {
             responseText += event.content;
             const updated = messagesMapRef.current.get(sessionId) || [];
             if (updated.length > 0) {
               updated[updated.length - 1] = { 
                 role: 'assistant', 
                 content: responseText,
-                toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+                timeline: timeline.length > 0 ? timeline : undefined
               };
               messagesMapRef.current.set(sessionId, [...updated]);
               if (selectedSessionRef.current === sessionId) {
@@ -251,24 +313,29 @@ export function Chat() {
               }
             }
           } else if (event.type === 'tool_start' && event.tools) {
-            toolCalls = event.tools.map(t => {
+            // Add new tool calls to timeline
+            for (const t of event.tools) {
               let formattedArgs = t.args;
               try {
                 const parsed = JSON.parse(t.args);
                 formattedArgs = JSON.stringify(parsed, null, 2);
               } catch {}
-              return {
-                name: t.name,
-                args: formattedArgs,
-                expanded: false
-              };
-            });
+              timeline = [...timeline, { 
+                type: 'tool' as const, 
+                data: {
+                  name: t.name,
+                  args: formattedArgs,
+                  status: 'pending' as const,
+                  expanded: false
+                }
+              }];
+            }
             const updated = messagesMapRef.current.get(sessionId) || [];
             if (updated.length > 0) {
               updated[updated.length - 1] = { 
                 role: 'assistant', 
                 content: responseText,
-                toolCalls
+                timeline
               };
               messagesMapRef.current.set(sessionId, [...updated]);
               if (selectedSessionRef.current === sessionId) {
@@ -276,20 +343,38 @@ export function Chat() {
               }
             }
           } else if (event.type === 'tool_result' && event.toolResult) {
-            const idx = toolCalls.findIndex(t => t.name === event.toolResult!.name);
-            if (idx !== -1) {
-              toolCalls = [...toolCalls];
-              toolCalls[idx] = {
-                ...toolCalls[idx],
-                args: JSON.stringify(event.toolResult.args, null, 2),
-                result: event.toolResult.result
+            // Find the last pending tool with matching name
+            let foundIdx = -1;
+            for (let i = timeline.length - 1; i >= 0; i--) {
+              const evt = timeline[i];
+              if (evt.type === 'tool' && 
+                  (evt.data as ToolCall).name === event.toolResult!.name && 
+                  (evt.data as ToolCall).status === 'pending') {
+                foundIdx = i;
+                break;
+              }
+            }
+            
+            if (foundIdx !== -1) {
+              const isError = event.toolResult.result?.toString().toLowerCase().includes('error') || 
+                             event.toolResult.result?.toString().toLowerCase().includes('fail');
+              const oldData = timeline[foundIdx].data as ToolCall;
+              timeline = [...timeline];
+              timeline[foundIdx] = {
+                type: 'tool',
+                data: {
+                  ...oldData,
+                  args: JSON.stringify(event.toolResult.args, null, 2),
+                  result: event.toolResult.result,
+                  status: isError ? 'error' : 'success'
+                }
               };
               const updated = messagesMapRef.current.get(sessionId) || [];
               if (updated.length > 0) {
                 updated[updated.length - 1] = { 
                   role: 'assistant', 
                   content: responseText,
-                  toolCalls
+                  timeline
                 };
                 messagesMapRef.current.set(sessionId, [...updated]);
                 if (selectedSessionRef.current === sessionId) {
@@ -543,24 +628,50 @@ export function Chat() {
                           <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                         ) : (
                           <div className="space-y-2">
-                            {msg.toolCalls && msg.toolCalls.length > 0 && (
+                            {msg.timeline && msg.timeline.length > 0 && (
                               <div className="mb-2">
-                                {msg.toolCalls.map((tc, ti) => (
-                                  <ToolCallCard
-                                    key={ti}
-                                    toolCall={tc}
-                                    onToggle={() => {
-                                      const updated = [...messages];
-                                      const m = updated[i] as Message;
-                                      if (m.toolCalls) {
-                                        m.toolCalls[ti] = { ...m.toolCalls[ti], expanded: !m.toolCalls[ti].expanded };
-                                      }
-                                      if (selectedSessionRef.current) {
-                                        messagesMapRef.current.set(selectedSessionRef.current, updated);
-                                      }
-                                      setMessages(updated);
-                                    }}
-                                  />
+                                {msg.timeline.map((event, ei) => (
+                                  event.type === 'thinking' ? (
+                                    <ThinkingCard
+                                      key={ei}
+                                      thinking={event.data as ThinkingBlock}
+                                      onToggle={() => {
+                                        const updated = [...messages];
+                                        const m = updated[i] as Message;
+                                        if (m.timeline && m.timeline[ei].type === 'thinking') {
+                                          const oldData = m.timeline[ei].data as ThinkingBlock;
+                                          m.timeline[ei] = { 
+                                            type: 'thinking', 
+                                            data: { ...oldData, expanded: !oldData.expanded } 
+                                          };
+                                        }
+                                        if (selectedSessionRef.current) {
+                                          messagesMapRef.current.set(selectedSessionRef.current, updated);
+                                        }
+                                        setMessages(updated);
+                                      }}
+                                    />
+                                  ) : (
+                                    <ToolCallCard
+                                      key={ei}
+                                      toolCall={event.data as ToolCall}
+                                      onToggle={() => {
+                                        const updated = [...messages];
+                                        const m = updated[i] as Message;
+                                        if (m.timeline && m.timeline[ei].type === 'tool') {
+                                          const oldData = m.timeline[ei].data as ToolCall;
+                                          m.timeline[ei] = { 
+                                            type: 'tool', 
+                                            data: { ...oldData, expanded: !oldData.expanded } 
+                                          };
+                                        }
+                                        if (selectedSessionRef.current) {
+                                          messagesMapRef.current.set(selectedSessionRef.current, updated);
+                                        }
+                                        setMessages(updated);
+                                      }}
+                                    />
+                                  )
                                 ))}
                               </div>
                             )}

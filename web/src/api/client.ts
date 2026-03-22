@@ -41,6 +41,7 @@ export interface Agent {
   profile?: AgentProfile;
   user_id?: string;
   relation?: string;
+  mcp_servers?: string[];
 }
 
 export interface User {
@@ -143,6 +144,7 @@ export async function updateAgent(agentId: string, data: {
   profile?: AgentProfile;
   user_id?: string;
   relation?: string;
+  mcp_servers?: string[];
 }): Promise<void> {
   const res = await fetch(`${API_BASE}/api/agents/${agentId}`, {
     method: 'PATCH',
@@ -252,10 +254,11 @@ export interface ToolResult {
 }
 
 export interface StreamEvent {
-  type: 'content' | 'tool_start' | 'tool_result';
+  type: 'content' | 'tool_start' | 'tool_result' | 'thinking';
   content?: string;
   tools?: ToolCallInfo[];
   toolResult?: ToolResult;
+  thinking?: string;
 }
 
 export async function* streamMessage(
@@ -290,7 +293,12 @@ export async function* streamMessage(
             if (data.content) {
               const content = data.content;
               
-              if (content.includes('__TOOL_START__')) {
+              if (content.includes('__THINKING__')) {
+                const match = content.match(/__THINKING__(.+?)__THINKING_END__/);
+                if (match) {
+                  yield { type: 'thinking', thinking: match[1] };
+                }
+              } else if (content.includes('__TOOL_START__')) {
                 const match = content.match(/__TOOL_START__(.+?)__TOOL_END__/);
                 if (match) {
                   yield { type: 'tool_start', tools: JSON.parse(match[1]) };
@@ -369,5 +377,45 @@ export async function invokeSkill(skillId: string, prompt: string, agentId: stri
     const err = await res.json();
     throw new Error(err.detail || 'Failed to invoke skill');
   }
+  return res.json();
+}
+
+export interface MCPServer {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  proxy?: string;
+}
+
+export async function getMCPServers(): Promise<Record<string, MCPServer>> {
+  const res = await fetch(`${API_BASE}/api/mcp/servers`);
+  return res.json();
+}
+
+export async function addMCPServer(name: string, config: MCPServer): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/mcp/servers/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to add MCP server');
+  }
+}
+
+export async function deleteMCPServer(name: string): Promise<void> {
+  await fetch(`${API_BASE}/api/mcp/servers/${name}`, { method: 'DELETE' });
+}
+
+export interface MCPTool {
+  server: string;
+  name: string;
+  description: string;
+  input_schema: any;
+}
+
+export async function getMCPTools(): Promise<MCPTool[]> {
+  const res = await fetch(`${API_BASE}/api/mcp/tools`);
   return res.json();
 }
