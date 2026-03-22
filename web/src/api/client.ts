@@ -240,10 +240,28 @@ export async function sendMessage(
   return data.response || '';
 }
 
+export interface ToolCallInfo {
+  name: string;
+  args: string;
+}
+
+export interface ToolResult {
+  name: string;
+  args: Record<string, unknown>;
+  result: string;
+}
+
+export interface StreamEvent {
+  type: 'content' | 'tool_start' | 'tool_result';
+  content?: string;
+  tools?: ToolCallInfo[];
+  toolResult?: ToolResult;
+}
+
 export async function* streamMessage(
   sessionId: string,
   message: string
-): AsyncGenerator<string> {
+): AsyncGenerator<StreamEvent> {
   const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -254,19 +272,44 @@ export async function* streamMessage(
   if (!reader) return;
 
   const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value);
-    const lines = chunk.split('\n');
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.content) yield data.content;
-        } catch {}
+  let buffer = '';
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.content) {
+              const content = data.content;
+              
+              if (content.includes('__TOOL_START__')) {
+                const match = content.match(/__TOOL_START__(.+?)__TOOL_END__/);
+                if (match) {
+                  yield { type: 'tool_start', tools: JSON.parse(match[1]) };
+                }
+              } else if (content.includes('__TOOL_RESULT__')) {
+                const match = content.match(/__TOOL_RESULT__(.+?)__TOOL_END__/);
+                if (match) {
+                  yield { type: 'tool_result', toolResult: JSON.parse(match[1]) };
+                }
+              } else {
+                yield { type: 'content', content };
+              }
+            }
+          } catch {}
+        }
       }
     }
+  } finally {
+    reader.cancel();
   }
 }
 

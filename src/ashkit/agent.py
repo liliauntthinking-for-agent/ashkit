@@ -324,18 +324,31 @@ class Agent:
         logger.warning(f"Reached max tool call rounds ({max_rounds})")
         return "I've reached the maximum number of tool calls. Let me provide a summary based on what I've learned so far."
 
-    async def process_message_stream(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
+    async def process_message_stream(self, session_id: str, message: str) -> AsyncGenerator[str, None]:
         """流式处理消息，支持工具调用"""
         await self.initialize()
 
-        context = await self.memory.get_context(self.agent_id, user_id, self.llm)
+        from .database import Database
+        db = Database(self.workspace.parent / "ashkit.db")
+        
+        db_messages = db.get_messages(session_id)
+        context = [{"role": m["role"], "content": m["content"]} for m in db_messages]
+        
+        recent_episodes = self.memory.l2.get_recent(session_id, limit=3)
+        if recent_episodes:
+            context.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": "Previous conversation summaries:\n"
+                    + "\n".join(e["summary"] for e in recent_episodes),
+                },
+            )
 
         system_prompt = self._build_system_prompt()
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context)
         messages.append({"role": "user", "content": message})
-
-        self.memory.add_message("user", message)
         
         # 获取最大工具调用次数
         max_calls = self.config.get("tools.max_calls", 10)
@@ -359,8 +372,12 @@ class Agent:
             tool_call_count += 1
             logger.info(f"Stream tool call round {tool_call_count}/{max_calls}")
             
-            # 通知用户正在执行工具
-            yield f"\n[正在执行工具: {', '.join(tc['function']['name'] for tc in response['tool_calls'])}]\n"
+            # 发送工具调用开始事件
+            tool_calls_info = [
+                {"name": tc["function"]["name"], "args": tc["function"]["arguments"]}
+                for tc in response["tool_calls"]
+            ]
+            yield f"__TOOL_START__{json.dumps(tool_calls_info, ensure_ascii=False)}__TOOL_END__"
             
             # 添加 assistant 消息（包含 tool_calls）
             assistant_message = {
@@ -388,23 +405,32 @@ class Agent:
                     "content": str(tool_result)
                 })
                 
-                yield f"[工具 {tool_name} 执行完成]\n"
+                # 发送工具执行结果事件
+                yield f"__TOOL_RESULT__{json.dumps({'name': tool_name, 'args': tool_args, 'result': str(tool_result)}, ensure_ascii=False)}__TOOL_END__"
         
         if tool_call_count >= max_calls:
             yield "\n[已达到最大工具调用次数限制]\n"
         
-        self.memory.add_message("assistant", full_response)
-        await self._persist_memory(user_id)
+        await self._persist_session(session_id, full_response)
+
+    async def _persist_session(self, session_id: str, response: str):
+        from .database import Database
+        db = Database(self.workspace.parent / "ashkit.db")
+        messages = db.get_messages(session_id)
+        
+        if len(messages) >= MEMORY_PERSIST_THRESHOLD:
+            await self.memory.save_to_l2(self.agent_id, session_id, self.llm, "")
+            await self._extract_semantic_memory(session_id, messages)
 
     async def _persist_memory(self, user_id: str):
         message_count = len(self.memory.l1.messages)
         
         if message_count >= MEMORY_PERSIST_THRESHOLD:
             await self.memory.save_to_l2(self.agent_id, user_id, self.llm, "")
-            await self._extract_semantic_memory(user_id)
+            messages = self.memory.l1.get_context()
+            await self._extract_semantic_memory(user_id, messages)
 
-    async def _extract_semantic_memory(self, user_id: str):
-        messages = self.memory.l1.get_context()
+    async def _extract_semantic_memory(self, session_id: str, messages: list):
         if len(messages) < 4:
             return
 
@@ -420,8 +446,8 @@ class Agent:
             ])
             
             if extraction and extraction.strip() != "NONE":
-                await self.memory.save_to_l3(user_id, extraction.strip(), self.llm)
-                logger.info(f"Saved semantic memory for {user_id}: {extraction[:50]}...")
+                await self.memory.save_to_l3(session_id, extraction.strip(), self.llm)
+                logger.info(f"Saved semantic memory for {session_id}: {extraction[:50]}...")
         except Exception as e:
             logger.warning(f"Failed to extract semantic memory: {e}")
 

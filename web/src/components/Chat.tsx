@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { 
   ChatCircle, Plus, Trash, PaperPlaneTilt, 
-  Spinner, User, Robot, Sparkle 
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -21,9 +21,67 @@ interface Session {
   message_count: number;
 }
 
+interface ToolCall {
+  name: string;
+  args: string;
+  result?: string;
+  expanded?: boolean;
+}
+
 interface Message {
   role: string;
   content: string;
+  toolCalls?: ToolCall[];
+}
+
+function ToolCallCard({ toolCall, onToggle }: { toolCall: ToolCall; onToggle: () => void }) {
+  return (
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg mb-2 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-white/50 transition-colors"
+      >
+        {toolCall.expanded ? (
+          <CaretDown className="w-4 h-4 text-[var(--color-accent-muted)]" />
+        ) : (
+          <CaretRight className="w-4 h-4 text-[var(--color-accent-muted)]" />
+        )}
+        <Wrench className="w-4 h-4 text-[var(--color-accent)]" weight="duotone" />
+        <span className="font-medium text-[var(--color-accent)]">{toolCall.name}</span>
+        {toolCall.result !== undefined && (
+          <span className="text-xs text-green-600 ml-auto">✓ 完成</span>
+        )}
+      </button>
+      <AnimatePresence>
+        {toolCall.expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="border-t border-[var(--color-border)]"
+          >
+            <div className="p-3 space-y-2">
+              <div>
+                <div className="text-xs font-medium text-[var(--color-accent-muted)] mb-1">参数</div>
+                <pre className="text-xs bg-white/50 p-2 rounded border border-[var(--color-border)] overflow-x-auto">
+                  {toolCall.args}
+                </pre>
+              </div>
+              {toolCall.result !== undefined && (
+                <div>
+                  <div className="text-xs font-medium text-[var(--color-accent-muted)] mb-1">结果</div>
+                  <pre className="text-xs bg-white/50 p-2 rounded border border-[var(--color-border)] overflow-x-auto max-h-40 overflow-y-auto">
+                    {toolCall.result}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export function Chat() {
@@ -39,6 +97,9 @@ export function Chat() {
   const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesMapRef = useRef<Map<string, Message[]>>(new Map());
+  const selectedSessionRef = useRef<string | null>(null);
+  const shouldSmoothScrollRef = useRef(false);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -59,11 +120,21 @@ export function Chat() {
   }, []);
 
   const handleSelectSession = useCallback(async (sessionId: string) => {
+    setSelectedSession(sessionId);
+    selectedSessionRef.current = sessionId;
+    
+    const cached = messagesMapRef.current.get(sessionId);
+    if (cached) {
+      setMessages(cached);
+    }
+    
     try {
       const session = await api.getSession(sessionId);
-      setSelectedSession(sessionId);
       setCurrentAgentId(session.agent_id);
-      setMessages(session.messages || []);
+      if (!cached) {
+        setMessages(session.messages || []);
+        messagesMapRef.current.set(sessionId, session.messages || []);
+      }
       setShowNewSession(false);
     } catch (e) {
       console.error(e);
@@ -83,7 +154,12 @@ export function Chat() {
   }, [selectedSessionId, setSelectedSessionId, handleSelectSession]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldSmoothScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      shouldSmoothScrollRef.current = false;
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+    }
   }, [messages]);
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
@@ -137,26 +213,99 @@ export function Chat() {
     }
 
     const userMessage = input.trim();
+    const sessionId = selectedSession;
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
-    setLoadingSessions((prev) => new Set(prev).add(selectedSession));
+    
+    const currentMessages = messagesMapRef.current.get(sessionId) || [];
+    const newMessages = [...currentMessages, { role: 'user' as const, content: userMessage }];
+    messagesMapRef.current.set(sessionId, newMessages);
+    if (selectedSessionRef.current === sessionId) {
+      shouldSmoothScrollRef.current = true;
+      setMessages(newMessages);
+    }
+    setLoadingSessions((prev) => new Set(prev).add(sessionId));
 
     try {
       if (streamMode) {
         let responseText = '';
-        setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+        let toolCalls: ToolCall[] = [];
+        const streamMessages = [...newMessages, { role: 'assistant' as const, content: '', toolCalls: [] }];
+        messagesMapRef.current.set(sessionId, streamMessages);
+        if (selectedSessionRef.current === sessionId) {
+          setMessages(streamMessages);
+        }
 
-        for await (const chunk of api.streamMessage(selectedSession, userMessage)) {
-          responseText += chunk;
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', content: responseText };
-            return updated;
-          });
+        for await (const event of api.streamMessage(sessionId, userMessage)) {
+          if (event.type === 'content' && event.content) {
+            responseText += event.content;
+            const updated = messagesMapRef.current.get(sessionId) || [];
+            if (updated.length > 0) {
+              updated[updated.length - 1] = { 
+                role: 'assistant', 
+                content: responseText,
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+              };
+              messagesMapRef.current.set(sessionId, [...updated]);
+              if (selectedSessionRef.current === sessionId) {
+                setMessages([...updated]);
+              }
+            }
+          } else if (event.type === 'tool_start' && event.tools) {
+            toolCalls = event.tools.map(t => {
+              let formattedArgs = t.args;
+              try {
+                const parsed = JSON.parse(t.args);
+                formattedArgs = JSON.stringify(parsed, null, 2);
+              } catch {}
+              return {
+                name: t.name,
+                args: formattedArgs,
+                expanded: false
+              };
+            });
+            const updated = messagesMapRef.current.get(sessionId) || [];
+            if (updated.length > 0) {
+              updated[updated.length - 1] = { 
+                role: 'assistant', 
+                content: responseText,
+                toolCalls
+              };
+              messagesMapRef.current.set(sessionId, [...updated]);
+              if (selectedSessionRef.current === sessionId) {
+                setMessages([...updated]);
+              }
+            }
+          } else if (event.type === 'tool_result' && event.toolResult) {
+            const idx = toolCalls.findIndex(t => t.name === event.toolResult!.name);
+            if (idx !== -1) {
+              toolCalls = [...toolCalls];
+              toolCalls[idx] = {
+                ...toolCalls[idx],
+                args: JSON.stringify(event.toolResult.args, null, 2),
+                result: event.toolResult.result
+              };
+              const updated = messagesMapRef.current.get(sessionId) || [];
+              if (updated.length > 0) {
+                updated[updated.length - 1] = { 
+                  role: 'assistant', 
+                  content: responseText,
+                  toolCalls
+                };
+                messagesMapRef.current.set(sessionId, [...updated]);
+                if (selectedSessionRef.current === sessionId) {
+                  setMessages([...updated]);
+                }
+              }
+            }
+          }
         }
       } else {
-        const response = await api.sendMessage(selectedSession, userMessage, false);
-        setMessages((prev) => [...prev, { role: 'assistant', content: response }]);
+        const response = await api.sendMessage(sessionId, userMessage, false);
+        const updated = [...newMessages, { role: 'assistant' as const, content: response }];
+        messagesMapRef.current.set(sessionId, updated);
+        if (selectedSessionRef.current === sessionId) {
+          setMessages(updated);
+        }
       }
       
       loadSessions();
@@ -165,7 +314,7 @@ export function Chat() {
     } finally {
       setLoadingSessions((prev) => {
         const next = new Set(prev);
-        next.delete(selectedSession);
+        next.delete(sessionId);
         return next;
       });
     }
@@ -392,27 +541,52 @@ export function Chat() {
                       `}>
                         {msg.role === 'user' ? (
                           <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                        ) : msg.content === '' && isLoading && i === messages.length - 1 ? (
-                          <div className="flex items-center gap-1">
-                            <motion.span
-                              animate={{ opacity: [0.4, 1, 0.4] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
-                              className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
-                            />
-                            <motion.span
-                              animate={{ opacity: [0.4, 1, 0.4] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
-                              className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
-                            />
-                            <motion.span
-                              animate={{ opacity: [0.4, 1, 0.4] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
-                              className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
-                            />
-                          </div>
                         ) : (
-                          <div className="prose prose-sm max-w-none">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          <div className="space-y-2">
+                            {msg.toolCalls && msg.toolCalls.length > 0 && (
+                              <div className="mb-2">
+                                {msg.toolCalls.map((tc, ti) => (
+                                  <ToolCallCard
+                                    key={ti}
+                                    toolCall={tc}
+                                    onToggle={() => {
+                                      const updated = [...messages];
+                                      const m = updated[i] as Message;
+                                      if (m.toolCalls) {
+                                        m.toolCalls[ti] = { ...m.toolCalls[ti], expanded: !m.toolCalls[ti].expanded };
+                                      }
+                                      if (selectedSessionRef.current) {
+                                        messagesMapRef.current.set(selectedSessionRef.current, updated);
+                                      }
+                                      setMessages(updated);
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                            {msg.content === '' && isLoading && i === messages.length - 1 ? (
+                              <div className="flex items-center gap-1">
+                                <motion.span
+                                  animate={{ opacity: [0.4, 1, 0.4] }}
+                                  transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
+                                  className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                                />
+                                <motion.span
+                                  animate={{ opacity: [0.4, 1, 0.4] }}
+                                  transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                                  className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                                />
+                                <motion.span
+                                  animate={{ opacity: [0.4, 1, 0.4] }}
+                                  transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
+                                  className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                                />
+                              </div>
+                            ) : msg.content ? (
+                              <div className="prose prose-sm max-w-none">
+                                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>
