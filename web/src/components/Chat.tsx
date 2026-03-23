@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ChatCircle, Plus, Trash, PaperPlaneTilt,
-  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser, ArrowUp
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -208,6 +208,9 @@ export function Chat() {
   const [streamMode, setStreamMode] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesMapRef = useRef<Map<string, Message[]>>(new Map());
   const selectedSessionRef = useRef<string | null>(null);
@@ -234,20 +237,22 @@ export function Chat() {
   const handleSelectSession = useCallback(async (sessionId: string) => {
     setSelectedSession(sessionId);
     selectedSessionRef.current = sessionId;
-    
+
     const cached = messagesMapRef.current.get(sessionId);
     if (cached) {
       setMessages(cached);
     }
-    
+
     try {
-      const session = await api.getSession(sessionId);
+      const session = await api.getSession(sessionId, 50, 0);
       setCurrentAgentId(session.agent_id);
+      setTotalCount(session.total_count);
+      setHasMore(session.has_more);
       if (!cached) {
         // Parse messages - use metadata.timeline if available, otherwise parse from content
         const parsedMessages = (session.messages || []).map((m: any) => {
           let timeline: TimelineEvent[] | undefined;
-          
+
           // Use metadata.timeline from server if available
           if (m.metadata?.timeline) {
             timeline = m.metadata.timeline.map((t: any) => {
@@ -276,7 +281,7 @@ export function Chat() {
               timeline = parsed.timeline;
             }
           }
-          
+
           return {
             role: m.role,
             content: m.content,
@@ -291,6 +296,64 @@ export function Chat() {
       console.error(e);
     }
   }, []);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!selectedSession || loadingMore || !hasMore) return;
+
+    setLoadingMore(true);
+    try {
+      const offset = messages.length;
+      const session = await api.getSession(selectedSession, 50, offset);
+
+      // Parse older messages
+      const olderMessages = (session.messages || []).map((m: any) => {
+        let timeline: TimelineEvent[] | undefined;
+
+        if (m.metadata?.timeline) {
+          timeline = m.metadata.timeline.map((t: any) => {
+            if (t.type === 'thinking') {
+              return {
+                type: 'thinking' as const,
+                data: { content: t.content, expanded: false }
+              };
+            } else {
+              return {
+                type: 'tool' as const,
+                data: {
+                  name: t.name,
+                  args: typeof t.args === 'string' ? t.args : JSON.stringify(t.args, null, 2),
+                  result: t.result,
+                  status: t.result ? 'success' : 'pending',
+                  expanded: false
+                }
+              };
+            }
+          });
+        } else {
+          const parsed = parseTimelineFromContent(m.content);
+          if (parsed.timeline) {
+            timeline = parsed.timeline;
+          }
+        }
+
+        return {
+          role: m.role,
+          content: m.content,
+          timeline
+        };
+      });
+
+      // Prepend older messages
+      const newMessages = [...olderMessages, ...messages];
+      setMessages(newMessages);
+      messagesMapRef.current.set(selectedSession, newMessages);
+      setHasMore(session.has_more);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [selectedSession, loadingMore, hasMore, messages]);
 
   useEffect(() => {
     loadAgents();
@@ -334,6 +397,8 @@ export function Chat() {
     try {
       await api.clearSessionMessages(selectedSession);
       setMessages([]);
+      setTotalCount(0);
+      setHasMore(false);
       messagesMapRef.current.set(selectedSession, []);
       loadSessions();
       showToast('对话已清空');
@@ -719,6 +784,26 @@ export function Chat() {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {/* Load More Button */}
+                {messages.length > 0 && hasMore && (
+                  <div className="flex justify-center pb-2">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-[var(--color-accent-muted)] hover:text-[var(--color-accent)] bg-[var(--color-surface)] hover:bg-white rounded-lg transition-colors"
+                    >
+                      {loadingMore ? (
+                        <Spinner className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="w-4 h-4" />
+                      )}
+                      加载更多 ({totalCount - messages.length} 条)
+                    </motion.button>
+                  </div>
+                )}
+
                 {messages.length === 0 ? (
                   <div className="h-full flex items-center justify-center">
                     <div className="text-center text-[var(--color-accent-muted)]">

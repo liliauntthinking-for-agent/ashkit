@@ -651,17 +651,20 @@ async def create_session(session: SessionCreate):
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str):
+async def get_session(session_id: str, limit: int = 50, offset: int = 0):
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
-    messages = db.get_messages(session_id)
+
+    messages = db.get_messages(session_id, limit, offset)
+    total_count = db.get_message_count(session_id)
     return {
         "session_id": session_id,
         "agent_id": session["agent_id"],
         "name": session.get("name"),
-        "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+        "messages": [{"role": m["role"], "content": m["content"], "metadata": m.get("metadata")} for m in messages],
+        "total_count": total_count,
+        "has_more": offset + limit < total_count,
     }
 
 

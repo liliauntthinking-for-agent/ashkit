@@ -221,11 +221,11 @@ class Database:
         conn.close()
         return {"id": msg_id, "session_id": session_id, "role": role, "content": content, "metadata": metadata}
 
-    def get_messages(self, session_id: str, limit: int = 100) -> list[dict]:
+    def get_messages(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict]:
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ?",
-            (session_id, limit),
+            "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
+            (session_id, limit, offset),
         ).fetchall()
         conn.close()
         results = []
@@ -235,6 +235,13 @@ class Database:
                 r["metadata"] = json.loads(r["metadata"])
             results.append(r)
         return results
+
+    def get_message_count(self, session_id: str) -> int:
+        conn = self._get_conn()
+        cursor = conn.execute("SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,))
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
 
     def clear_messages(self, session_id: str):
         conn = self._get_conn()
