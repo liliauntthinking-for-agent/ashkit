@@ -717,7 +717,8 @@ async def generate_response(
         if is_first_message:
             actual_message = get_time_prefix() + message
 
-        db.add_message(session_id, "user", message)
+        # Save the actual message (with time prefix if first message)
+        db.add_message(session_id, "user", actual_message)
 
         if is_first_message:
             name = message[:50] + ("..." if len(message) > 50 else "")
@@ -791,13 +792,14 @@ async def send_message(session_id: str, message: MessageSend):
         if is_first_message:
             actual_message = get_time_prefix() + message.content
 
-        db.add_message(session_id, "user", message.content)
+        # Save the actual message (with time prefix if first message)
+        db.add_message(session_id, "user", actual_message)
 
         if is_first_message:
             name = message.content[:50] + ("..." if len(message.content) > 50 else "")
             db.update_session_name(session_id, name)
 
-        response = await agent.process_message(session_id, actual_message)
+        response = await agent.process_message(session_id)
         
         db.add_message(session_id, "assistant", response)
 

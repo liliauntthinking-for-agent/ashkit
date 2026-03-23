@@ -261,13 +261,18 @@ class Agent:
 
         logger.info(f"Agent {self.agent_id} initialized with {len(self.skills)} skills")
 
-    async def process_message(self, session_id: str, message: str) -> str:
+    async def process_message(self, session_id: str) -> str:
+        """处理消息，支持工具调用
+
+        Args:
+            session_id: 会话ID（用户消息已保存到数据库）
+        """
         await self.initialize()
 
         from .database import Database
         db = Database(self.workspace.parent / "ashkit.db")
 
-        # Load messages from database to ensure context persists across restarts
+        # Load all messages from database (including current user message saved by web.py)
         db_messages = db.get_messages(session_id)
         context = [{"role": m["role"], "content": m["content"]} for m in db_messages]
 
@@ -286,9 +291,9 @@ class Agent:
         system_prompt = await self._build_system_prompt()
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context)
-        messages.append({"role": "user", "content": message})
+        # User message is already in context from database, no need to add again
 
-        self.memory.add_message("user", message)
+        self.memory.add_message("user", db_messages[-1]["content"] if db_messages else "")
 
         # 使用工具调用循环，限制最大轮次
         max_calls = self.config.get("tools.max_calls", 10)
@@ -343,15 +348,22 @@ class Agent:
         return "I've reached the maximum number of tool calls. Let me provide a summary based on what I've learned so far."
 
     async def process_message_stream(self, session_id: str, message: str) -> AsyncGenerator[str, None]:
-        """流式处理消息，支持工具调用"""
+        """流式处理消息，支持工具调用
+
+        Args:
+            session_id: 会话ID
+            message: 当前用户消息（已保存到数据库，用于日志和调试）
+        """
         await self.initialize()
 
         from .database import Database
         db = Database(self.workspace.parent / "ashkit.db")
-        
+
+        # Load all messages from database (including current user message saved by web.py)
         db_messages = db.get_messages(session_id)
         context = [{"role": m["role"], "content": m["content"]} for m in db_messages]
-        
+
+        # Add recent episodic memory summaries
         recent_episodes = self.memory.l2.get_recent(session_id, limit=3)
         if recent_episodes:
             context.insert(
@@ -366,7 +378,7 @@ class Agent:
         system_prompt = await self._build_system_prompt()
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(context)
-        messages.append({"role": "user", "content": message})
+        # User message is already in context from database, no need to add again
         
         # 获取最大工具调用次数
         max_calls = self.config.get("tools.max_calls", 10)
