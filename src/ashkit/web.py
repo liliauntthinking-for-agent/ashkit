@@ -693,15 +693,29 @@ async def update_session(session_id: str, update: SessionUpdate):
     return {"status": "updated", "name": update.name}
 
 
+def get_time_prefix() -> str:
+    """Generate a time prefix for the first message of a session."""
+    from datetime import datetime
+    now = datetime.now()
+    weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    weekday = weekdays[now.weekday()]
+    return f"[当前时间: {now.strftime('%Y年%m月%d日')} {weekday} {now.strftime('%H:%M')}]\n\n"
+
+
 async def generate_response(
     agent: Any, session_id: str, message: str
 ) -> AsyncGenerator[str, None]:
     try:
         messages = db.get_messages(session_id)
         is_first_message = len(messages) == 0
-        
+
+        # Inject current time for first message
+        actual_message = message
+        if is_first_message:
+            actual_message = get_time_prefix() + message
+
         db.add_message(session_id, "user", message)
-        
+
         if is_first_message:
             name = message[:50] + ("..." if len(message) > 50 else "")
             db.update_session_name(session_id, name)
@@ -709,8 +723,8 @@ async def generate_response(
         full_response = ""
         timeline: list[dict] = []
         current_tool: dict | None = None
-        
-        async for chunk in agent.process_message_stream(session_id, message):
+
+        async for chunk in agent.process_message_stream(session_id, actual_message):
             # Send chunk to frontend first
             yield f"data: {json.dumps({'content': chunk})}\n\n"
             
@@ -768,14 +782,19 @@ async def send_message(session_id: str, message: MessageSend):
     try:
         messages = db.get_messages(session_id)
         is_first_message = len(messages) == 0
-        
+
+        # Inject current time for first message
+        actual_message = message.content
+        if is_first_message:
+            actual_message = get_time_prefix() + message.content
+
         db.add_message(session_id, "user", message.content)
-        
+
         if is_first_message:
             name = message.content[:50] + ("..." if len(message.content) > 50 else "")
             db.update_session_name(session_id, name)
-        
-        response = await agent.process_message(session_id, message.content)
+
+        response = await agent.process_message(session_id, actual_message)
         
         db.add_message(session_id, "assistant", response)
 
