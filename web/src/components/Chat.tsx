@@ -59,6 +59,7 @@ interface Message {
   id?: number;
   role: string;
   content: string;
+  created_at?: string;
   timeline?: TimelineEvent[];
 }
 
@@ -360,6 +361,7 @@ export function Chat() {
             id: m.id,
             role: m.role,
             content: m.content,
+            created_at: m.created_at,
             timeline
           };
         });
@@ -423,6 +425,7 @@ export function Chat() {
           id: m.id,
           role: m.role,
           content: m.content,
+          created_at: m.created_at,
           timeline
         };
       });
@@ -592,8 +595,9 @@ export function Chat() {
     const sessionId = selectedSession;
     setInput('');
     
+    const now = new Date().toISOString();
     const currentMessages = messagesMapRef.current.get(sessionId) || [];
-    const newMessages = [...currentMessages, { role: 'user' as const, content: userMessage }];
+    const newMessages = [...currentMessages, { role: 'user' as const, content: userMessage, created_at: now }];
     messagesMapRef.current.set(sessionId, newMessages);
     if (selectedSessionRef.current === sessionId) {
       shouldSmoothScrollRef.current = true;
@@ -605,7 +609,7 @@ export function Chat() {
       if (streamMode) {
         let responseText = '';
         let timeline: TimelineEvent[] = [];
-        const streamMessages = [...newMessages, { role: 'assistant' as const, content: '', timeline: [] }];
+        const streamMessages = [...newMessages, { role: 'assistant' as const, content: '', created_at: now, timeline: [] }];
         messagesMapRef.current.set(sessionId, streamMessages);
         if (selectedSessionRef.current === sessionId) {
           setMessages(streamMessages);
@@ -714,7 +718,7 @@ export function Chat() {
         }
       } else {
         const response = await api.sendMessage(sessionId, userMessage, false);
-        const updated = [...newMessages, { role: 'assistant' as const, content: response }];
+        const updated = [...newMessages, { role: 'assistant' as const, content: response, created_at: now }];
         messagesMapRef.current.set(sessionId, updated);
         if (selectedSessionRef.current === sessionId) {
           setMessages(updated);
@@ -986,7 +990,18 @@ export function Chat() {
                           {displayName}
                         </span>
                       </div>
-                      <div className="group flex items-end gap-1">
+                      <div className="group flex flex-col items-end gap-1">
+                        {msg.created_at && (
+                          <span className={`text-[10px] text-[var(--color-accent-muted)] ${isUser ? 'order-first' : ''}`}>
+                            {new Date(msg.created_at).toLocaleString('zh-CN', { 
+                              month: '2-digit', 
+                              day: '2-digit', 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            })}
+                          </span>
+                        )}
+                        <div className="flex items-end gap-1">
                         <div className={`
                           max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
                           ${isUser 
@@ -1072,6 +1087,7 @@ export function Chat() {
                         )}
                         </div>
                         <CopyButton text={msg.content} />
+                        </div>
                       </div>
                     </motion.div>
                     );
