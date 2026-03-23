@@ -13,6 +13,21 @@ import * as api from '../api/client';
 interface Agent {
   agent_id: string;
   status: string;
+  user_id?: string;
+  profile?: {
+    name?: string;
+    nickname?: string;
+    avatar?: string;
+  };
+}
+
+interface User {
+  user_id: string;
+  profile?: {
+    name?: string;
+    nickname?: string;
+    avatar?: string;
+  };
 }
 
 interface Session {
@@ -231,9 +246,12 @@ export function Chat() {
   const showToast = useToast();
   const { selectedSessionId, setSelectedSessionId } = useApp();
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [currentAgentId, setCurrentAgentId] = useState<string>('');
+  const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streamMode, setStreamMode] = useState(true);
@@ -261,6 +279,15 @@ export function Chat() {
     }
   }, []);
 
+  const loadUsers = useCallback(async () => {
+    try {
+      const data = await api.getUsers();
+      setUsers(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const loadSessions = useCallback(async () => {
     try {
       const data = await api.getSessions();
@@ -282,6 +309,17 @@ export function Chat() {
     try {
       const session = await api.getSession(sessionId, 20);
       setCurrentAgentId(session.agent_id);
+      
+      const agent = agents.find(a => a.agent_id === session.agent_id);
+      setCurrentAgent(agent || null);
+      
+      if (agent?.user_id) {
+        const user = users.find(u => u.user_id === agent.user_id);
+        setCurrentUser(user || null);
+      } else {
+        setCurrentUser(null);
+      }
+      
       setHasMore(session.has_more);
       setFirstMessageId(session.first_id);
       if (!cached) {
@@ -423,8 +461,9 @@ export function Chat() {
 
   useEffect(() => {
     loadAgents();
+    loadUsers();
     loadSessions();
-  }, [loadAgents, loadSessions]);
+  }, [loadAgents, loadUsers, loadSessions]);
 
   // Update token count when session or messages change
   const updateTokenCount = useCallback(async () => {
@@ -912,37 +951,50 @@ export function Chat() {
                     </div>
                   </div>
                 ) : (
-                  messages.map((msg, i) => (
+                  messages.map((msg, i) => {
+                    const isUser = msg.role === 'user';
+                    const profile = isUser ? currentUser?.profile : currentAgent?.profile;
+                    const displayName = profile?.nickname || profile?.name || (isUser ? '用户' : currentAgentId);
+                    const avatarUrl = profile?.avatar;
+                    
+                    return (
                     <motion.div
                       key={msg.id || i}
                       data-message-index={i}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.05 }}
-                      className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                      className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
                     >
-                      <div className={`
-                        w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
-                        ${msg.role === 'user' 
-                          ? 'bg-[var(--color-accent)]' 
-                          : 'bg-[var(--color-surface)]'
-                        }
-                      `}>
-                        {msg.role === 'user' ? (
-                          <User className="w-4 h-4 text-white" weight="duotone" />
-                        ) : (
-                          <Robot className="w-4 h-4 text-[var(--color-accent)]" weight="duotone" />
-                        )}
+                      <div className="flex flex-col items-center gap-1">
+                        <div className={`
+                          w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden
+                          ${isUser 
+                            ? 'bg-[var(--color-accent)]' 
+                            : 'bg-[var(--color-surface)]'
+                          }
+                        `}>
+                          {avatarUrl ? (
+                            <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                          ) : isUser ? (
+                            <User className="w-4 h-4 text-white" weight="duotone" />
+                          ) : (
+                            <Robot className="w-4 h-4 text-[var(--color-accent)]" weight="duotone" />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-[var(--color-accent-muted)] max-w-[60px] truncate text-center">
+                          {displayName}
+                        </span>
                       </div>
                       <div className="group flex items-end gap-1">
                         <div className={`
                           max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
-                          ${msg.role === 'user' 
+                          ${isUser 
                             ? 'bg-[var(--color-accent)] text-white rounded-tr-md' 
                             : 'bg-[var(--color-surface)] text-[var(--color-accent)] rounded-tl-md'
                           }
                         `}>
-                          {msg.role === 'user' ? (
+                          {isUser ? (
                             <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                           ) : (
                           <div className="space-y-2">
@@ -1022,7 +1074,8 @@ export function Chat() {
                         <CopyButton text={msg.content} />
                       </div>
                     </motion.div>
-                  ))
+                    );
+                  })
                 )}
                 {/* Loading indicator - only for non-stream mode */}
                 {isLoading && !streamMode && (

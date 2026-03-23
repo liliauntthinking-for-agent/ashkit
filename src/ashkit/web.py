@@ -3,8 +3,8 @@ import tiktoken
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -62,6 +62,7 @@ async def startup_event():
 class AgentProfile(BaseModel):
     name: str = ""
     nickname: str = ""
+    avatar: str = ""
     gender: str = ""
     birthday: str = ""
     height: int | None = None
@@ -82,6 +83,7 @@ class AgentProfile(BaseModel):
 class UserProfile(BaseModel):
     name: str = ""
     nickname: str = ""
+    avatar: str = ""
     gender: str = ""
     birthday: str = ""
     height: int | None = None
@@ -463,6 +465,92 @@ async def update_user(user_id: str, update: UserUpdate):
 async def delete_user(user_id: str):
     if not db.delete_user(user_id):
         raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "deleted"}
+
+
+avatars_dir = workspace / "avatars"
+avatars_dir.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/api/avatars/{avatar_type}/{entity_id}")
+async def upload_avatar(avatar_type: str, entity_id: str, file: UploadFile = File(...)):
+    if avatar_type not in ("agent", "user"):
+        raise HTTPException(status_code=400, detail="Invalid avatar type")
+    
+    if avatar_type == "agent":
+        if not db.get_agent(entity_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
+    else:
+        if not db.get_user(entity_id):
+            raise HTTPException(status_code=404, detail="User not found")
+    
+    content = await file.read()
+    
+    avatar_path = avatars_dir / f"{avatar_type}_{entity_id}"
+    avatar_path.write_bytes(content)
+    
+    avatar_url = f"/api/avatars/{avatar_type}/{entity_id}"
+    
+    if avatar_type == "agent":
+        agent = db.get_agent(entity_id)
+        profile = agent.get("profile", {}) or {}
+        profile["avatar"] = avatar_url
+        db.update_agent(entity_id, profile)
+    else:
+        user = db.get_user(entity_id)
+        profile = user.get("profile", {}) or {}
+        profile["avatar"] = avatar_url
+        db.update_user(entity_id, profile)
+    
+    return {"avatar": avatar_url}
+
+
+@app.get("/api/avatars/{avatar_type}/{entity_id}")
+async def get_avatar(avatar_type: str, entity_id: str):
+    if avatar_type not in ("agent", "user"):
+        raise HTTPException(status_code=400, detail="Invalid avatar type")
+    
+    avatar_path = avatars_dir / f"{avatar_type}_{entity_id}"
+    
+    if not avatar_path.exists():
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    
+    content = avatar_path.read_bytes()
+    
+    content_type = "image/png"
+    if avatar_path.suffix.lower() in (".jpg", ".jpeg"):
+        content_type = "image/jpeg"
+    elif avatar_path.suffix.lower() == ".gif":
+        content_type = "image/gif"
+    elif avatar_path.suffix.lower() == ".webp":
+        content_type = "image/webp"
+    
+    return Response(content=content, media_type=content_type)
+
+
+@app.delete("/api/avatars/{avatar_type}/{entity_id}")
+async def delete_avatar(avatar_type: str, entity_id: str):
+    if avatar_type not in ("agent", "user"):
+        raise HTTPException(status_code=400, detail="Invalid avatar type")
+    
+    avatar_path = avatars_dir / f"{avatar_type}_{entity_id}"
+    
+    if avatar_path.exists():
+        avatar_path.unlink()
+    
+    if avatar_type == "agent":
+        agent = db.get_agent(entity_id)
+        if agent:
+            profile = agent.get("profile", {}) or {}
+            profile["avatar"] = ""
+            db.update_agent(entity_id, profile)
+    else:
+        user = db.get_user(entity_id)
+        if user:
+            profile = user.get("profile", {}) or {}
+            profile["avatar"] = ""
+            db.update_user(entity_id, profile)
+    
     return {"status": "deleted"}
 
 

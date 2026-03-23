@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { UserPlus, User, IdentificationBadge, PencilSimple, Check } from '@phosphor-icons/react';
+import { UserPlus, User, IdentificationBadge, PencilSimple, Check, Camera } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import * as api from '../api/client';
 
@@ -9,6 +9,7 @@ type User = api.User;
 const defaultProfile = {
   name: '',
   nickname: '',
+  avatar: '',
   gender: '',
   birthday: '',
   height: '',
@@ -634,9 +635,46 @@ export function Users() {
           >
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-[var(--color-surface)] 
-                  flex items-center justify-center">
-                  <User className="w-6 h-6 text-[var(--color-accent)]" weight="duotone" />
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-xl bg-[var(--color-surface)] 
+                    flex items-center justify-center overflow-hidden">
+                    {selectedUser.profile?.avatar ? (
+                      <img 
+                        src={selectedUser.profile.avatar} 
+                        alt={selectedUser.profile?.name || selectedUser.user_id}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-6 h-6 text-[var(--color-accent)]" weight="duotone" />
+                    )}
+                  </div>
+                  {isEditing && (
+                    <label className="absolute -bottom-1 -right-1 w-5 h-5 bg-[var(--color-accent)] 
+                      rounded-full flex items-center justify-center cursor-pointer hover:bg-[var(--color-accent)]/80">
+                      <Camera className="w-3 h-3 text-white" weight="fill" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file && selectedUser) {
+                            try {
+                              const result = await api.uploadAvatar('user', selectedUser.user_id, file);
+                              const updated = await api.getUser(selectedUser.user_id);
+                              setSelectedUser(updated);
+                              if (editProfile) {
+                                setEditProfile({ ...editProfile, avatar: result.avatar });
+                              }
+                              loadData();
+                            } catch (err) {
+                              showToast('头像上传失败', 'error');
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-[var(--color-accent)]">

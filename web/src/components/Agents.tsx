@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check, Heart, Play, Clock, Scroll } from '@phosphor-icons/react';
+import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check, Heart, Play, Clock, Scroll, Camera } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import * as api from '../api/client';
 
@@ -23,6 +23,7 @@ const translateError = (msg: string) => errorMessages[msg] || msg;
 const defaultProfile = {
   name: '',
   nickname: '',
+  avatar: '',
   gender: '',
   birthday: '',
   height: '',
@@ -854,9 +855,49 @@ export function Agents() {
           >
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-[var(--color-surface)] 
-                  flex items-center justify-center">
-                  <User className="w-6 h-6 text-[var(--color-accent)]" weight="duotone" />
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-xl bg-[var(--color-surface)] 
+                    flex items-center justify-center overflow-hidden">
+                    {selectedAgent.profile?.avatar ? (
+                      <img 
+                        src={selectedAgent.profile.avatar} 
+                        alt={selectedAgent.profile?.name || selectedAgent.agent_id}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-6 h-6 text-[var(--color-accent)]" weight="duotone" />
+                    )}
+                  </div>
+                  {isEditing && (
+                    <label className="absolute -bottom-1 -right-1 w-5 h-5 bg-[var(--color-accent)] 
+                      rounded-full flex items-center justify-center cursor-pointer hover:bg-[var(--color-accent)]/80">
+                      <Camera className="w-3 h-3 text-white" weight="fill" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file && selectedAgent) {
+                            try {
+                              const result = await api.uploadAvatar('agent', selectedAgent.agent_id, file);
+                              const updated = await api.getAgent(selectedAgent.agent_id);
+                              setSelectedAgent(updated);
+                              if (editData.profile) {
+                                setEditData({
+                                  ...editData,
+                                  profile: { ...editData.profile, avatar: result.avatar }
+                                });
+                              }
+                              loadData();
+                            } catch (err) {
+                              showToast('头像上传失败', 'error');
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-[var(--color-accent)]">

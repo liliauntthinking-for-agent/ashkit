@@ -10,6 +10,7 @@ export interface Provider {
 export interface ProfileBase {
   name: string;
   nickname: string;
+  avatar: string;
   gender: string;
   birthday: string;
   height: number | null;
@@ -519,4 +520,22 @@ export async function getHeartbeatLogs(agentId: string, limit = 20): Promise<{ a
 
 export async function clearHeartbeatLogs(agentId: string): Promise<void> {
   await fetch(`${API_BASE}/api/agents/${agentId}/heartbeat/logs`, { method: 'DELETE' });
+}
+
+export async function uploadAvatar(type: 'agent' | 'user', id: string, file: File): Promise<{ avatar: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/avatars/${type}/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to upload avatar');
+  }
+  return res.json();
+}
+
+export async function deleteAvatar(type: 'agent' | 'user', id: string): Promise<void> {
+  await fetch(`${API_BASE}/api/avatars/${type}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
