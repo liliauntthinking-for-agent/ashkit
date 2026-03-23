@@ -210,6 +210,7 @@ export function Chat() {
   const [showNewSession, setShowNewSession] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [tokenCount, setTokenCount] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesMapRef = useRef<Map<string, Message[]>>(new Map());
@@ -382,6 +383,24 @@ export function Chat() {
     loadAgents();
     loadSessions();
   }, [loadAgents, loadSessions]);
+
+  // Update token count when session or messages change
+  const updateTokenCount = useCallback(async () => {
+    if (!selectedSession) {
+      setTokenCount(null);
+      return;
+    }
+    try {
+      const data = await api.getSessionTokens(selectedSession);
+      setTokenCount(data.total_tokens);
+    } catch (e) {
+      console.error('Failed to get token count:', e);
+    }
+  }, [selectedSession]);
+
+  useEffect(() => {
+    updateTokenCount();
+  }, [updateTokenCount, messages.length]);
 
   useEffect(() => {
     if (selectedSessionId) {
@@ -983,28 +1002,35 @@ export function Chat() {
                       onKeyDown={handleKeyDown}
                       disabled={isLoading || !selectedSession}
                       className="w-full px-4 py-3 bg-[var(--color-surface)] border border-[var(--color-border)]
-                        rounded-xl text-sm resize-none focus:outline-none focus:ring-2 
+                        rounded-xl text-sm resize-none focus:outline-none focus:ring-2
                         focus:ring-[var(--color-accent)]/20 focus:border-[var(--color-accent)]
                         disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                       style={{ minHeight: '48px', maxHeight: '120px' }}
                     />
                   </div>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleSend}
-                    disabled={isLoading || !selectedSession}
-                    className="w-12 h-12 flex items-center justify-center
-                      bg-[var(--color-accent)] text-white rounded-xl
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                      hover:bg-[var(--color-accent)]/90 transition-colors"
-                  >
-                    {isLoading ? (
-                      <Spinner className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <PaperPlaneTilt className="w-5 h-5" weight="fill" />
+                  <div className="flex flex-col items-center gap-1">
+                    {tokenCount !== null && selectedSession && (
+                      <span className="text-xs text-[var(--color-text-secondary)]">
+                        {tokenCount.toLocaleString()} tokens
+                      </span>
                     )}
-                  </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleSend}
+                      disabled={isLoading || !selectedSession}
+                      className="w-12 h-12 flex items-center justify-center
+                        bg-[var(--color-accent)] text-white rounded-xl
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                        hover:bg-[var(--color-accent)]/90 transition-colors"
+                    >
+                      {isLoading ? (
+                        <Spinner className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <PaperPlaneTilt className="w-5 h-5" weight="fill" />
+                      )}
+                    </motion.button>
+                  </div>
                 </div>
               </div>
             </motion.div>

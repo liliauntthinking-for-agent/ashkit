@@ -1,4 +1,5 @@
 import json
+import tiktoken
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
@@ -9,6 +10,23 @@ from pydantic import BaseModel
 
 from .config import Config
 from .database import Database
+
+# Token counter for cl100k_base (GPT-4/ChatGPT encoding)
+_tokenizer = tiktoken.get_encoding("cl100k_base")
+
+def count_tokens(text: str) -> int:
+    """Count tokens in text using tiktoken."""
+    return len(_tokenizer.encode(text))
+
+def count_messages_tokens(messages: list[dict]) -> int:
+    """Count total tokens in a list of messages."""
+    total = 0
+    for msg in messages:
+        # Each message has role and content overhead (~4 tokens)
+        total += 4
+        total += count_tokens(msg.get("role", ""))
+        total += count_tokens(msg.get("content", ""))
+    return total
 
 app = FastAPI(title="Ashkit Web API")
 
@@ -665,6 +683,46 @@ async def get_session(session_id: str, limit: int = 50, offset: int = 0):
         "messages": [{"role": m["role"], "content": m["content"], "metadata": m.get("metadata")} for m in messages],
         "total_count": total_count,
         "has_more": offset + limit < total_count,
+    }
+
+
+@app.get("/api/sessions/{session_id}/tokens")
+async def get_session_tokens(session_id: str):
+    """Get the input token count for the session (context that will be sent to LLM)."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Get all messages for the session
+    messages = db.get_messages(session_id, limit=1000)
+    context = [{"role": m["role"], "content": m["content"]} for m in messages]
+
+    # Get agent to include system prompt estimate
+    agent = await get_agent_runtime(session["agent_id"])
+    await agent.initialize()
+
+    # Estimate system prompt tokens (simplified - just count the built prompt)
+    system_prompt = await agent._build_system_prompt()
+    system_tokens = count_tokens(system_prompt)
+
+    # Count message tokens
+    message_tokens = count_messages_tokens(context)
+
+    # Add overhead for L2 summaries (estimate ~500 tokens if any)
+    l2_tokens = 0
+    recent_episodes = agent.memory.l2.get_recent(session_id, limit=3)
+    if recent_episodes:
+        for ep in recent_episodes:
+            l2_tokens += count_tokens(ep.get("summary", ""))
+
+    total_tokens = system_tokens + message_tokens + l2_tokens
+
+    return {
+        "session_id": session_id,
+        "system_tokens": system_tokens,
+        "message_tokens": message_tokens,
+        "l2_tokens": l2_tokens,
+        "total_tokens": total_tokens,
     }
 
 

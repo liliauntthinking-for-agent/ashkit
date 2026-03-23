@@ -226,6 +226,17 @@ export async function getSession(sessionId: string, limit = 50, offset = 0): Pro
   return res.json();
 }
 
+export async function getSessionTokens(sessionId: string): Promise<{
+  session_id: string;
+  system_tokens: number;
+  message_tokens: number;
+  l2_tokens: number;
+  total_tokens: number;
+}> {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/tokens`);
+  return res.json();
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
 }
