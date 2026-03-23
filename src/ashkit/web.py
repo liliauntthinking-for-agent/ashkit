@@ -1,4 +1,5 @@
 import json
+import random
 import tiktoken
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -1090,7 +1091,8 @@ async def heartbeat_scheduler(agent_id: str, interval_minutes: int, prompt: str)
     """Background task that runs heartbeat periodically for an agent."""
     while True:
         try:
-            await asyncio.sleep(interval_minutes * 60)
+            sleep_minutes = interval_minutes * random.uniform(0.8, 1.2)
+            await asyncio.sleep(sleep_minutes * 60)
 
             # Check if agent still exists and heartbeat is enabled
             agent_info = db.get_agent(agent_id)
