@@ -289,6 +289,10 @@ export function Chat() {
         });
         setMessages(parsedMessages);
         messagesMapRef.current.set(sessionId, parsedMessages);
+        // Scroll to bottom on initial load
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+        });
       }
       setShowNewSession(false);
     } catch (e) {
@@ -387,11 +391,11 @@ export function Chat() {
   }, [selectedSessionId, setSelectedSessionId, handleSelectSession]);
 
   useEffect(() => {
+    // Only scroll when shouldSmoothScrollRef is true (new message sent)
+    // Don't scroll on expand/collapse or load more
     if (shouldSmoothScrollRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       shouldSmoothScrollRef.current = false;
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
     }
   }, [messages]);
 
