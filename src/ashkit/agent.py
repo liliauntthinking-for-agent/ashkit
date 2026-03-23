@@ -241,22 +241,27 @@ class Agent:
 
         from .memory import MemoryManager
         from .skills import SkillLoader
-        from .tools import init_tools
+        from .tools import init_tools, register_tool, SkillTool
 
         self.memory = MemoryManager(self.workspace / self.agent_id)
-        
+
         agent_skills_dir = self.workspace / self.agent_id / "skills"
         builtin_skills_dir = Path.home() / ".agents" / "skills"
-        
+
         self.skills = []
-        
+
         skill_loader = SkillLoader(agent_skills_dir)
         self.skills.extend(await skill_loader.load_all())
-        
+
         builtin_loader = SkillLoader(builtin_skills_dir)
         self.skills.extend(await builtin_loader.load_all())
-        
+
         init_tools(self.workspace)
+
+        # Register skills as tools
+        for skill in self.skills:
+            register_tool(SkillTool(skill))
+
         self._initialized = True
 
         logger.info(f"Agent {self.agent_id} initialized with {len(self.skills)} skills")
@@ -651,9 +656,10 @@ You have direct access to the user's local file system and can execute shell com
                 prompt += f"\nEnabled MCP servers: {', '.join(self.mcp_servers)}\n"
         
         if self.skills:
-            prompt += "\n\nAvailable skills:\n"
+            prompt += "\n\nAVAILABLE SKILLS:\n"
+            prompt += "You can invoke skills using the skill tools. Each skill has a corresponding tool named 'skill_{skill_name}':\n"
             for skill in self.skills:
-                prompt += f"- {skill.name}: {skill.description}\n"
+                prompt += f"- skill_{skill.name}: {skill.description}\n"
         
         return prompt
 

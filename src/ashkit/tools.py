@@ -176,6 +176,28 @@ class MCPTool(BaseTool):
         return await call_mcp_tool(server, tool, arguments or kwargs or {})
 
 
+class SkillTool(BaseTool):
+    """Tool wrapper for invoking skills"""
+    def __init__(self, skill):
+        self.skill = skill
+        super().__init__(f"skill_{skill.name}", f"Invoke skill: {skill.description}")
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The prompt or task for this skill"
+                }
+            },
+            "required": ["prompt"]
+        }
+
+    async def execute(self, prompt: str) -> str:
+        """Execute the skill by appending its content to the context"""
+        # Return the skill content as context for the LLM
+        return f"[Skill: {self.skill.name}]\n{self.skill.content}\n\nUser request: {prompt}"
+
+
 _TOOL_REGISTRY = {}
 
 
