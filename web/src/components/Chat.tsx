@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ChatCircle, Plus, Trash, PaperPlaneTilt,
-  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser, ArrowUp
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -208,10 +208,10 @@ export function Chat() {
   const [streamMode, setStreamMode] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesMapRef = useRef<Map<string, Message[]>>(new Map());
   const selectedSessionRef = useRef<string | null>(null);
   const shouldSmoothScrollRef = useRef(false);
@@ -246,7 +246,6 @@ export function Chat() {
     try {
       const session = await api.getSession(sessionId, 50, 0);
       setCurrentAgentId(session.agent_id);
-      setTotalCount(session.total_count);
       setHasMore(session.has_more);
       if (!cached) {
         // Parse messages - use metadata.timeline if available, otherwise parse from content
@@ -301,6 +300,9 @@ export function Chat() {
     if (!selectedSession || loadingMore || !hasMore) return;
 
     setLoadingMore(true);
+    const container = messagesContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight || 0;
+
     try {
       const offset = messages.length;
       const session = await api.getSession(selectedSession, 50, offset);
@@ -348,12 +350,29 @@ export function Chat() {
       setMessages(newMessages);
       messagesMapRef.current.set(selectedSession, newMessages);
       setHasMore(session.has_more);
+
+      // Restore scroll position after loading
+      requestAnimationFrame(() => {
+        if (container) {
+          const newScrollHeight = container.scrollHeight;
+          container.scrollTop = newScrollHeight - prevScrollHeight;
+        }
+      });
     } catch (e) {
       console.error(e);
     } finally {
       setLoadingMore(false);
     }
   }, [selectedSession, loadingMore, hasMore, messages]);
+
+  // Handle scroll to load more
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    // When scrolled to top (within 100px), load more
+    if (container.scrollTop < 100 && hasMore && !loadingMore && messages.length > 0) {
+      handleLoadMore();
+    }
+  }, [hasMore, loadingMore, messages.length, handleLoadMore]);
 
   useEffect(() => {
     loadAgents();
@@ -397,7 +416,6 @@ export function Chat() {
     try {
       await api.clearSessionMessages(selectedSession);
       setMessages([]);
-      setTotalCount(0);
       setHasMore(false);
       messagesMapRef.current.set(selectedSession, []);
       loadSessions();
@@ -783,24 +801,18 @@ export function Chat() {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {/* Load More Button */}
-                {messages.length > 0 && hasMore && (
-                  <div className="flex justify-center pb-2">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={handleLoadMore}
-                      disabled={loadingMore}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-[var(--color-accent-muted)] hover:text-[var(--color-accent)] bg-[var(--color-surface)] hover:bg-white rounded-lg transition-colors"
-                    >
-                      {loadingMore ? (
-                        <Spinner className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <ArrowUp className="w-4 h-4" />
-                      )}
-                      加载更多 ({totalCount - messages.length} 条)
-                    </motion.button>
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-6 space-y-4"
+              >
+                {/* Loading indicator at top */}
+                {loadingMore && (
+                  <div className="flex justify-center py-2">
+                    <div className="flex items-center gap-2 text-sm text-[var(--color-accent-muted)]">
+                      <Spinner className="w-4 h-4 animate-spin" />
+                      加载中...
+                    </div>
                   </div>
                 )}
 
