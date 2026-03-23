@@ -28,3 +28,4 @@ env/
 venv/
 .env.local
 .history/
+uv.lock

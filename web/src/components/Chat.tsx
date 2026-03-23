@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ChatCircle, Plus, Trash, PaperPlaneTilt,
-  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser, ArrowsInCardinal
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser, ArrowsInCardinal, Copy, Check
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -45,6 +45,36 @@ interface Message {
   role: string;
   content: string;
   timeline?: TimelineEvent[];
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const showToast = useToast();
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      showToast('已复制');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      showToast('复制失败', 'error');
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-black/5 transition-all"
+      title="复制"
+    >
+      {copied ? (
+        <Check className="w-4 h-4 text-green-500" weight="bold" />
+      ) : (
+        <Copy className="w-4 h-4 text-[var(--color-accent-muted)]" />
+      )}
+    </button>
+  );
 }
 
 function parseTimelineFromContent(content: string): { content: string; timeline?: TimelineEvent[] } {
@@ -904,16 +934,17 @@ export function Chat() {
                           <Robot className="w-4 h-4 text-[var(--color-accent)]" weight="duotone" />
                         )}
                       </div>
-                      <div className={`
-                        max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
-                        ${msg.role === 'user' 
-                          ? 'bg-[var(--color-accent)] text-white rounded-tr-md' 
-                          : 'bg-[var(--color-surface)] text-[var(--color-accent)] rounded-tl-md'
-                        }
-                      `}>
-                        {msg.role === 'user' ? (
-                          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                        ) : (
+                      <div className="group flex items-end gap-1">
+                        <div className={`
+                          max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
+                          ${msg.role === 'user' 
+                            ? 'bg-[var(--color-accent)] text-white rounded-tr-md' 
+                            : 'bg-[var(--color-surface)] text-[var(--color-accent)] rounded-tl-md'
+                          }
+                        `}>
+                          {msg.role === 'user' ? (
+                            <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                          ) : (
                           <div className="space-y-2">
                             {msg.timeline && msg.timeline.length > 0 && (
                               <div className="mb-2">
@@ -987,6 +1018,8 @@ export function Chat() {
                             ) : null}
                           </div>
                         )}
+                        </div>
+                        <CopyButton text={msg.content} />
                       </div>
                     </motion.div>
                   ))
