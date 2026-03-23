@@ -231,9 +231,25 @@ export async function getSessionTokens(sessionId: string): Promise<{
   system_tokens: number;
   message_tokens: number;
   l2_tokens: number;
+  compressed_tokens: number;
   total_tokens: number;
+  is_compressed: boolean;
 }> {
   const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/tokens`);
+  return res.json();
+}
+
+export async function compressSession(sessionId: string): Promise<{
+  status: string;
+  compressed_tokens: number;
+  original_message_count: number;
+  compressed_context: string;
+}> {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/compress`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to compress session');
+  }
   return res.json();
 }
 

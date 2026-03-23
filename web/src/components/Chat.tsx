@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ChatCircle, Plus, Trash, PaperPlaneTilt,
-  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser, ArrowsInCardinal
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -211,6 +211,8 @@ export function Chat() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [tokenCount, setTokenCount] = useState<number | null>(null);
+  const [isCompressed, setIsCompressed] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesMapRef = useRef<Map<string, Message[]>>(new Map());
@@ -393,6 +395,7 @@ export function Chat() {
     try {
       const data = await api.getSessionTokens(selectedSession);
       setTokenCount(data.total_tokens);
+      setIsCompressed(data.is_compressed);
     } catch (e) {
       console.error('Failed to get token count:', e);
     }
@@ -417,6 +420,27 @@ export function Chat() {
       shouldSmoothScrollRef.current = false;
     }
   }, [messages]);
+
+  const handleCompress = async () => {
+    if (!selectedSession || compressing) return;
+    if (!confirm('确定要压缩当前对话吗？压缩后原始消息将被摘要替代。')) return;
+
+    setCompressing(true);
+    try {
+      const result = await api.compressSession(selectedSession);
+      showToast(`已压缩，从 ${result.original_message_count} 条消息压缩为 ${result.compressed_tokens} tokens`);
+      // Clear messages since they're now compressed
+      setMessages([]);
+      messagesMapRef.current.set(selectedSession, []);
+      setHasMore(false);
+      setIsCompressed(true);
+      setTokenCount(result.compressed_tokens);
+    } catch (e: any) {
+      showToast('压缩失败: ' + e.message, 'error');
+    } finally {
+      setCompressing(false);
+    }
+  };
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1009,11 +1033,29 @@ export function Chat() {
                     />
                   </div>
                   <div className="flex flex-col items-center gap-1">
-                    {tokenCount !== null && selectedSession && (
-                      <span className="text-xs text-[var(--color-text-secondary)]">
-                        {tokenCount.toLocaleString()} tokens
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {tokenCount !== null && selectedSession && (
+                        <span className={`text-xs ${isCompressed ? 'text-green-500' : 'text-[var(--color-text-secondary)]'}`}>
+                          {tokenCount.toLocaleString()} tokens {isCompressed && '(已压缩)'}
+                        </span>
+                      )}
+                      {tokenCount !== null && tokenCount > 1000 && !isCompressed && selectedSession && messages.length > 2 && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={handleCompress}
+                          disabled={compressing}
+                          className="p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] transition-colors"
+                          title="压缩对话"
+                        >
+                          {compressing ? (
+                            <Spinner className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ArrowsInCardinal className="w-4 h-4" />
+                          )}
+                        </motion.button>
+                      )}
+                    </div>
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}

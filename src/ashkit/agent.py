@@ -272,9 +272,20 @@ class Agent:
         from .database import Database
         db = Database(self.workspace.parent / "ashkit.db")
 
-        # Load all messages from database (including current user message saved by web.py)
+        # Check for compressed context first
+        compressed_context = db.get_compressed_context(session_id)
+        context = []
+
+        if compressed_context:
+            # Use compressed context instead of original messages
+            context.append({
+                "role": "system",
+                "content": f"[历史对话摘要]\n{compressed_context}"
+            })
+
+        # Load messages from database (including current user message saved by web.py)
         db_messages = db.get_messages(session_id)
-        context = [{"role": m["role"], "content": m["content"]} for m in db_messages]
+        context.extend([{"role": m["role"], "content": m["content"]} for m in db_messages])
 
         # Add recent episodic memory summaries
         recent_episodes = self.memory.l2.get_recent(session_id, limit=3)
@@ -359,9 +370,20 @@ class Agent:
         from .database import Database
         db = Database(self.workspace.parent / "ashkit.db")
 
+        # Check for compressed context first
+        compressed_context = db.get_compressed_context(session_id)
+        context = []
+
+        if compressed_context:
+            # Use compressed context instead of original messages
+            context.append({
+                "role": "system",
+                "content": f"[历史对话摘要]\n{compressed_context}"
+            })
+
         # Load all messages from database (including current user message saved by web.py)
         db_messages = db.get_messages(session_id)
-        context = [{"role": m["role"], "content": m["content"]} for m in db_messages]
+        context.extend([{"role": m["role"], "content": m["content"]} for m in db_messages])
 
         # Add recent episodic memory summaries
         recent_episodes = self.memory.l2.get_recent(session_id, limit=3)

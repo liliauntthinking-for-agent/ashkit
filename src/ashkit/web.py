@@ -693,6 +693,12 @@ async def get_session_tokens(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Check for compressed context
+    compressed_context = db.get_compressed_context(session_id)
+    compressed_tokens = 0
+    if compressed_context:
+        compressed_tokens = count_tokens(compressed_context)
+
     # Get all messages for the session
     messages = db.get_messages(session_id, limit=1000)
     context = [{"role": m["role"], "content": m["content"]} for m in messages]
@@ -715,15 +721,76 @@ async def get_session_tokens(session_id: str):
         for ep in recent_episodes:
             l2_tokens += count_tokens(ep.get("summary", ""))
 
-    total_tokens = system_tokens + message_tokens + l2_tokens
+    total_tokens = system_tokens + message_tokens + l2_tokens + compressed_tokens
 
     return {
         "session_id": session_id,
         "system_tokens": system_tokens,
         "message_tokens": message_tokens,
         "l2_tokens": l2_tokens,
+        "compressed_tokens": compressed_tokens,
         "total_tokens": total_tokens,
+        "is_compressed": bool(compressed_context),
     }
+
+
+@app.post("/api/sessions/{session_id}/compress")
+async def compress_session(session_id: str):
+    """Compress session messages into a summary, reducing token count."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Get all messages
+    messages = db.get_messages(session_id, limit=1000)
+    if not messages:
+        return {"status": "no_messages", "compressed_tokens": 0}
+
+    # Get agent for LLM
+    agent = await get_agent_runtime(session["agent_id"])
+
+    # Build conversation text for compression
+    conversation_text = "\n".join([
+        f"{m['role']}: {m['content']}"
+        for m in messages
+    ])
+
+    # Use LLM to compress the conversation
+    compress_prompt = f"""请将以下对话压缩成一个简洁的摘要，保留关键信息、决策、用户偏好和重要细节。
+摘要应该足够详细，以便 AI 助手可以继续对话而不丢失上下文。
+格式要求：
+1. 用简洁的中文描述
+2. 保留重要的具体信息（如日期、地点、名称、数值等）
+3. 保留用户的偏好和决定
+4. 按时间顺序组织
+
+对话内容：
+{conversation_text}
+
+请生成压缩摘要："""
+
+    try:
+        compressed = await agent.llm.chat([
+            {"role": "system", "content": "你是一个对话压缩助手，擅长将长对话压缩成简洁但信息完整的摘要。"},
+            {"role": "user", "content": compress_prompt}
+        ])
+
+        # Save compressed context
+        db.set_compressed_context(session_id, compressed)
+        # Clear original messages
+        db.clear_messages(session_id)
+
+        # Count tokens of compressed context
+        compressed_tokens = count_tokens(compressed)
+
+        return {
+            "status": "compressed",
+            "compressed_tokens": compressed_tokens,
+            "original_message_count": len(messages),
+            "compressed_context": compressed,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Compression failed: {str(e)}")
 
 
 @app.delete("/api/sessions/{session_id}")

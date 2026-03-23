@@ -91,10 +91,12 @@ class Database:
         
         cursor = conn.execute("PRAGMA table_info(sessions)")
         session_columns = [row[1] for row in cursor.fetchall()]
-        
+
         if "name" not in session_columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
-        
+        if "compressed_context" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN compressed_context TEXT")
+
         conn.commit()
         conn.close()
 
@@ -195,6 +197,37 @@ class Database:
         conn.commit()
         conn.close()
         return affected > 0
+
+    def set_compressed_context(self, session_id: str, compressed_context: str) -> bool:
+        """Set compressed context for a session, clearing original messages."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE sessions SET compressed_context = ? WHERE session_id = ?",
+            (compressed_context, session_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    def get_compressed_context(self, session_id: str) -> str | None:
+        """Get compressed context for a session."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT compressed_context FROM sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        conn.close()
+        return row["compressed_context"] if row else None
+
+    def clear_compressed_context(self, session_id: str) -> bool:
+        """Clear compressed context for a session."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE sessions SET compressed_context = NULL WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
 
     def list_sessions(self, agent_id: str | None = None) -> list[dict]:
         conn = self._get_conn()
