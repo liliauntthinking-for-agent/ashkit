@@ -215,14 +215,18 @@ export async function createSession(agentId: string): Promise<Session> {
   return res.json();
 }
 
-export async function getSession(sessionId: string, limit = 50, offset = 0): Promise<{
+export async function getSession(sessionId: string, limit = 20, beforeId?: number): Promise<{
   session_id: string;
   agent_id: string;
   messages: Message[];
   total_count: number;
   has_more: boolean;
+  first_id: number | null;
 }> {
-  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}?limit=${limit}&offset=${offset}`);
+  const url = beforeId
+    ? `${API_BASE}/api/sessions/${sessionId}?limit=${limit}&before_id=${beforeId}`
+    : `${API_BASE}/api/sessions/${sessionId}?limit=${limit}`;
+  const res = await fetch(url);
   return res.json();
 }
 

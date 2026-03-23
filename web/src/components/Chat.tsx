@@ -41,6 +41,7 @@ interface TimelineEvent {
 }
 
 interface Message {
+  id?: number;
   role: string;
   content: string;
   timeline?: TimelineEvent[];
@@ -209,6 +210,7 @@ export function Chat() {
   const [loadingSessions, setLoadingSessions] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [firstMessageId, setFirstMessageId] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [tokenCount, setTokenCount] = useState<number | null>(null);
   const [isCompressed, setIsCompressed] = useState(false);
@@ -218,6 +220,7 @@ export function Chat() {
   const messagesMapRef = useRef<Map<string, Message[]>>(new Map());
   const selectedSessionRef = useRef<string | null>(null);
   const shouldSmoothScrollRef = useRef(false);
+  const scrollBottomRef = useRef<number>(0);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -247,9 +250,10 @@ export function Chat() {
     }
 
     try {
-      const session = await api.getSession(sessionId, 50, 0);
+      const session = await api.getSession(sessionId, 20);
       setCurrentAgentId(session.agent_id);
       setHasMore(session.has_more);
+      setFirstMessageId(session.first_id);
       if (!cached) {
         // Parse messages - use metadata.timeline if available, otherwise parse from content
         const parsedMessages = (session.messages || []).map((m: any) => {
@@ -285,6 +289,7 @@ export function Chat() {
           }
 
           return {
+            id: m.id,
             role: m.role,
             content: m.content,
             timeline
@@ -304,15 +309,16 @@ export function Chat() {
   }, []);
 
   const handleLoadMore = useCallback(async () => {
-    if (!selectedSession || loadingMore || !hasMore) return;
+    if (!selectedSession || loadingMore || !hasMore || !firstMessageId) return;
 
     setLoadingMore(true);
     const container = messagesContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight || 0;
+    if (container) {
+      scrollBottomRef.current = container.scrollHeight - container.scrollTop;
+    }
 
     try {
-      const offset = messages.length;
-      const session = await api.getSession(selectedSession, 50, offset);
+      const session = await api.getSession(selectedSession, 20, firstMessageId);
 
       // Parse older messages
       const olderMessages = (session.messages || []).map((m: any) => {
@@ -346,6 +352,7 @@ export function Chat() {
         }
 
         return {
+          id: m.id,
           role: m.role,
           content: m.content,
           timeline
@@ -357,29 +364,32 @@ export function Chat() {
       setMessages(newMessages);
       messagesMapRef.current.set(selectedSession, newMessages);
       setHasMore(session.has_more);
-
-      // Restore scroll position after loading
-      requestAnimationFrame(() => {
-        if (container) {
-          const newScrollHeight = container.scrollHeight;
-          container.scrollTop = newScrollHeight - prevScrollHeight;
-        }
-      });
+      setFirstMessageId(session.first_id);
     } catch (e) {
       console.error(e);
     } finally {
       setLoadingMore(false);
     }
-  }, [selectedSession, loadingMore, hasMore, messages]);
+  }, [selectedSession, loadingMore, hasMore, firstMessageId, messages]);
 
-  // Handle scroll to load more
+  // Handle scroll to load more (preload when near top)
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
-    // When scrolled to top (within 100px), load more
-    if (container.scrollTop < 100 && hasMore && !loadingMore && messages.length > 0) {
+    if (hasMore && !loadingMore && messages.length > 0 && container.scrollTop < 300) {
       handleLoadMore();
     }
   }, [hasMore, loadingMore, messages.length, handleLoadMore]);
+
+  // Restore scroll position after loading more
+  useEffect(() => {
+    if (!loadingMore && scrollBottomRef.current > 0) {
+      const container = messagesContainerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight - scrollBottomRef.current;
+        scrollBottomRef.current = 0;
+      }
+    }
+  }, [loadingMore, messages.length]);
 
   useEffect(() => {
     loadAgents();
@@ -874,7 +884,8 @@ export function Chat() {
                 ) : (
                   messages.map((msg, i) => (
                     <motion.div
-                      key={i}
+                      key={msg.id || i}
+                      data-message-index={i}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.05 }}

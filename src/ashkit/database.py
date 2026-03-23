@@ -254,7 +254,7 @@ class Database:
         conn.close()
         return {"id": msg_id, "session_id": session_id, "role": role, "content": content, "metadata": metadata}
 
-    def get_messages(self, session_id: str, limit: int = 100, offset: int = 0) -> list[dict]:
+    def get_messages(self, session_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
         conn = self._get_conn()
         rows = conn.execute(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
@@ -263,6 +263,38 @@ class Database:
         conn.close()
         results = []
         for row in rows:
+            r = dict(row)
+            if r.get("metadata"):
+                r["metadata"] = json.loads(r["metadata"])
+            results.append(r)
+        return results
+
+    def get_latest_messages(self, session_id: str, limit: int = 20) -> list[dict]:
+        """Get the latest N messages, returned in chronological order."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
+            (session_id, limit),
+        ).fetchall()
+        conn.close()
+        results = []
+        for row in reversed(rows):
+            r = dict(row)
+            if r.get("metadata"):
+                r["metadata"] = json.loads(r["metadata"])
+            results.append(r)
+        return results
+
+    def get_messages_before(self, session_id: str, before_id: int, limit: int = 20) -> list[dict]:
+        """Get messages before a specific ID, returned in chronological order."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY created_at DESC LIMIT ?",
+            (session_id, before_id, limit),
+        ).fetchall()
+        conn.close()
+        results = []
+        for row in reversed(rows):
             r = dict(row)
             if r.get("metadata"):
                 r["metadata"] = json.loads(r["metadata"])

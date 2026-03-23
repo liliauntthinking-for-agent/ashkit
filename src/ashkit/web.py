@@ -641,12 +641,12 @@ async def list_sessions(agent_id: str | None = None):
     sessions = db.list_sessions(agent_id)
     result = []
     for s in sessions:
-        messages = db.get_messages(s["session_id"])
+        count = db.get_message_count(s["session_id"])
         result.append({
             "session_id": s["session_id"],
             "agent_id": s["agent_id"],
             "name": s.get("name"),
-            "message_count": len(messages),
+            "message_count": count,
         })
     return result
 
@@ -669,20 +669,27 @@ async def create_session(session: SessionCreate):
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str, limit: int = 50, offset: int = 0):
+async def get_session(session_id: str, limit: int = 20, before_id: int | None = None):
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    messages = db.get_messages(session_id, limit, offset)
+    if before_id:
+        messages = db.get_messages_before(session_id, before_id, limit)
+    else:
+        messages = db.get_latest_messages(session_id, limit)
+    
     total_count = db.get_message_count(session_id)
+    first_id = messages[0]["id"] if messages else None
+    
     return {
         "session_id": session_id,
         "agent_id": session["agent_id"],
         "name": session.get("name"),
-        "messages": [{"role": m["role"], "content": m["content"], "metadata": m.get("metadata")} for m in messages],
+        "messages": [{"id": m["id"], "role": m["role"], "content": m["content"], "metadata": m.get("metadata")} for m in messages],
         "total_count": total_count,
-        "has_more": offset + limit < total_count,
+        "has_more": first_id is not None and first_id > 1,
+        "first_id": first_id,
     }
 
 
@@ -693,41 +700,21 @@ async def get_session_tokens(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Check for compressed context
     compressed_context = db.get_compressed_context(session_id)
     compressed_tokens = 0
     if compressed_context:
         compressed_tokens = count_tokens(compressed_context)
 
-    # Get all messages for the session
     messages = db.get_messages(session_id, limit=1000)
-    context = [{"role": m["role"], "content": m["content"]} for m in messages]
+    message_tokens = count_messages_tokens([{"role": m["role"], "content": m["content"]} for m in messages])
 
-    # Get agent to include system prompt estimate
-    agent = await get_agent_runtime(session["agent_id"])
-    await agent.initialize()
-
-    # Estimate system prompt tokens (simplified - just count the built prompt)
-    system_prompt = await agent._build_system_prompt()
-    system_tokens = count_tokens(system_prompt)
-
-    # Count message tokens
-    message_tokens = count_messages_tokens(context)
-
-    # Add overhead for L2 summaries (estimate ~500 tokens if any)
-    l2_tokens = 0
-    recent_episodes = agent.memory.l2.get_recent(session_id, limit=3)
-    if recent_episodes:
-        for ep in recent_episodes:
-            l2_tokens += count_tokens(ep.get("summary", ""))
-
-    total_tokens = system_tokens + message_tokens + l2_tokens + compressed_tokens
+    total_tokens = message_tokens + compressed_tokens + 2000
 
     return {
         "session_id": session_id,
-        "system_tokens": system_tokens,
+        "system_tokens": 2000,
         "message_tokens": message_tokens,
-        "l2_tokens": l2_tokens,
+        "l2_tokens": 0,
         "compressed_tokens": compressed_tokens,
         "total_tokens": total_tokens,
         "is_compressed": bool(compressed_context),
