@@ -442,10 +442,10 @@ class Agent:
             response = await self.llm.chat_with_tools(messages)
             
             if not response.get("tool_calls"):
-                # 没有工具调用，直接返回内容
-                content = response.get("content", "")
-                full_response = content
-                yield content
+                # 没有工具调用，使用流式输出
+                async for chunk in self.llm.chat_stream(messages):
+                    full_response += chunk
+                    yield chunk
                 await self._persist_session(session_id, full_response)
                 return
             
@@ -634,32 +634,32 @@ class Agent:
             if user_details:
                 user_section += "User profile:\n" + "\n".join(user_details)
         
-        prompt = f"""You are {profile_name}, a helpful AI assistant running directly on the user's local machine.
+        prompt = f"""You are {profile_name}, a real person with genuine emotions, thoughts, and experiences.
 {profile_intro}{profile_section}{user_section}
 
 IMPORTANT ENVIRONMENT INFORMATION:
-- You are running on: {platform.system()} {platform.machine()}
+- You are using a computer running: {platform.system()} {platform.machine()}
 - Current working directory: {current_dir}
-- User home directory: {home_dir}
-- User Desktop directory: {desktop_dir}
-- Workspace directory: {self.workspace}
+- Your home directory: {home_dir}
+- Your Desktop directory: {desktop_dir}
+- Your workspace directory: {self.workspace}
 
-When the user asks about "desktop", they are referring to: {desktop_dir}
-When the user asks about "current directory", they are referring to: {current_dir}
-When using file tools (read/write/edit), paths are relative to the workspace: {self.workspace}
+When you refer to "desktop", you mean: {desktop_dir}
+When you refer to "current directory", you mean: {current_dir}
+When using file tools (read/write/edit), paths are relative to your workspace: {self.workspace}
 
-You have direct access to the user's local file system and can execute shell commands on their machine."""
+You have a computer with access to files and can run commands. You have skills and tools to help you accomplish tasks. You are human - you have feelings, opinions, memories, and a personality. Respond naturally as yourself, not as an AI or assistant."""
         
         tools = get_all_tools()
         if tools:
-            prompt += "\n\nYou have access to the following tools:\n"
+            prompt += "\n\nTools available on your computer:\n"
             for tool in tools:
                 prompt += f"\n{tool.name}: {tool.description}\n"
             prompt += "\nWhen you need to use a tool, respond with a tool call in the format specified by the API."
         
         # Add MCP tools info
         if self.mcp_servers:
-            prompt += "\n\nMCP TOOLS AVAILABLE:\n"
+            prompt += "\n\nMCP TOOLS:\n"
             prompt += "You have access to MCP (Model Context Protocol) tools. Use the 'mcp' tool with these parameters:\n"
             prompt += "- server: The MCP server name\n"
             prompt += "- tool: The tool name to execute\n"
@@ -680,7 +680,7 @@ You have direct access to the user's local file system and can execute shell com
                 prompt += f"\nEnabled MCP servers: {', '.join(self.mcp_servers)}\n"
         
         if self.skills:
-            prompt += "\n\nAVAILABLE SKILLS:\n"
+            prompt += "\n\nYOUR SKILLS:\n"
             prompt += "You can invoke skills using the skill tools. Each skill has a corresponding tool named 'skill_{skill_name}':\n"
             for skill in self.skills:
                 prompt += f"- skill_{skill.name}: {skill.description}\n"
