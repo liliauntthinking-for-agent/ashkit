@@ -671,6 +671,18 @@ async def delete_session(session_id: str):
     return {"status": "deleted"}
 
 
+@app.delete("/api/sessions/{session_id}/messages")
+async def clear_session_messages(session_id: str):
+    """Clear all messages in a session, keeping the session itself."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    db.clear_messages(session_id)
+    # Also update the session name to indicate it's a fresh start
+    db.update_session_name(session_id, "新对话")
+    return {"status": "cleared", "session_id": session_id}
+
+
 @app.patch("/api/sessions/{session_id}")
 async def update_session(session_id: str, update: SessionUpdate):
     session = db.get_session(session_id)

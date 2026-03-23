@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { 
-  ChatCircle, Plus, Trash, PaperPlaneTilt, 
-  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain
+import {
+  ChatCircle, Plus, Trash, PaperPlaneTilt,
+  Spinner, User, Robot, Sparkle, Wrench, CaretDown, CaretRight, Brain, Eraser
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import { useApp } from '../AppContext';
@@ -316,14 +316,29 @@ export function Chat() {
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('确定删除此会话?')) return;
-    
+
     await api.deleteSession(sessionId);
     loadSessions();
     showToast('已删除');
-    
+
     if (selectedSession === sessionId) {
       setSelectedSession(null);
       setMessages([]);
+    }
+  };
+
+  const handleClearMessages = async () => {
+    if (!selectedSession) return;
+    if (!confirm('确定清空当前对话? 这将删除所有消息但保留会话。')) return;
+
+    try {
+      await api.clearSessionMessages(selectedSession);
+      setMessages([]);
+      messagesMapRef.current.set(selectedSession, []);
+      loadSessions();
+      showToast('对话已清空');
+    } catch (e: any) {
+      showToast('清空失败: ' + e.message, 'error');
     }
   };
 
@@ -672,21 +687,34 @@ export function Chat() {
                     <span className="text-[var(--color-accent-muted)]">请选择会话或创建新会话</span>
                   )}
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <span className="text-xs text-[var(--color-accent-muted)]">流式响应</span>
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      checked={streamMode}
-                      onChange={(e) => setStreamMode(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-[var(--color-surface)] rounded-full peer-checked:bg-[var(--color-accent)]
-                      transition-colors duration-200" />
-                    <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-sm
-                      peer-checked:translate-x-4 transition-transform duration-200" />
-                  </div>
-                </label>
+                <div className="flex items-center gap-3">
+                  {selectedSession && messages.length > 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleClearMessages}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-[var(--color-accent-muted)] hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Eraser className="w-4 h-4" />
+                      清空对话
+                    </motion.button>
+                  )}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-xs text-[var(--color-accent-muted)]">流式响应</span>
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        checked={streamMode}
+                        onChange={(e) => setStreamMode(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-[var(--color-surface)] rounded-full peer-checked:bg-[var(--color-accent)]
+                        transition-colors duration-200" />
+                      <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-sm
+                        peer-checked:translate-x-4 transition-transform duration-200" />
+                    </div>
+                  </label>
+                </div>
               </div>
 
               {/* Messages */}

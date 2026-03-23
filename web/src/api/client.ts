@@ -228,6 +228,14 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
+export async function clearSessionMessages(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to clear messages');
+  }
+}
+
 export async function sendMessage(
   sessionId: string,
   message: string,
