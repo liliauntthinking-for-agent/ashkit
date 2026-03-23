@@ -859,10 +859,13 @@ async def generate_response(
         # Save message with timeline metadata
         metadata = {"timeline": timeline} if timeline else None
         db.add_message(session_id, "assistant", full_response, metadata)
+        logging.info(f"Saved assistant message for {session_id}, length: {len(full_response)}")
         
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     except Exception as e:
+        import traceback
+        logging.error(f"Error in generate_response: {e}\n{traceback.format_exc()}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 

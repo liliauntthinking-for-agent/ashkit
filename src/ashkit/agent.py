@@ -65,7 +65,7 @@ class LLMClient:
                     "messages": messages,
                     "stream": False,
                 },
-                timeout=120.0,
+                timeout=300.0,
             )
             if resp.status_code != 200:
                 logger.error(f"LLM error: {resp.text}")
@@ -123,7 +123,7 @@ class LLMClient:
                     "tool_choice": "auto",
                     "stream": False,
                 },
-                timeout=120.0,
+                timeout=300.0,
             )
             if resp.status_code != 200:
                 logger.error(f"LLM error: {resp.text}")
@@ -171,7 +171,7 @@ class LLMClient:
                     "messages": messages,
                     "stream": True,
                 },
-                timeout=120.0,
+                timeout=300.0,
             ) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
@@ -199,26 +199,40 @@ class LLMClient:
         provider_config = self.config.get("providers", {}).get(self.provider, {})
         api_key = provider_config.get("apiKey", "")
         api_base = provider_config.get("apiBase", "")
+        
+        # Use configured embedding model or default based on provider
+        embedding_model = self.config.get("embedding_model")
+        if not embedding_model:
+            # Default models for different providers
+            if "dashscope" in api_base or "aliyun" in api_base:
+                embedding_model = "text-embedding-v3"
+            else:
+                embedding_model = "text-embedding-3-small"
 
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{api_base.rstrip('/')}/embeddings",
-                headers=headers,
-                json={
-                    "model": "text-embedding-3-small",
-                    "input": text,
-                },
-                timeout=30.0,
-            )
-            if resp.status_code != 200:
-                return [0.0] * 1536
-            data = resp.json()
-            return data["data"][0]["embedding"]
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{api_base.rstrip('/')}/embeddings",
+                    headers=headers,
+                    json={
+                        "model": embedding_model,
+                        "input": text,
+                    },
+                    timeout=30.0,
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"Embedding API error: {resp.status_code} - {resp.text}")
+                    return [0.0] * 1536
+                data = resp.json()
+                return data["data"][0]["embedding"]
+        except Exception as e:
+            logger.warning(f"Failed to get embedding: {e}")
+            return [0.0] * 1536
 
 
 class Agent:
@@ -296,7 +310,7 @@ class Agent:
             })
 
         # Load messages from database (including current user message saved by web.py)
-        db_messages = db.get_messages(session_id)
+        db_messages = db.get_latest_messages(session_id, limit=100)
         
         is_first_message = len([m for m in db_messages if m["role"] == "user"]) == 1
         if is_first_message:
@@ -402,7 +416,7 @@ class Agent:
             })
 
         # Load all messages from database (including current user message saved by web.py)
-        db_messages = db.get_messages(session_id)
+        db_messages = db.get_latest_messages(session_id, limit=100)
         
         is_first_message = len([m for m in db_messages if m["role"] == "user"]) == 1
         if is_first_message:
@@ -430,6 +444,10 @@ class Agent:
         messages.extend(context)
         # User message is already in context from database, no need to add again
         
+        # Add user message to L1 working memory
+        if db_messages:
+            self.memory.add_message("user", db_messages[-1]["content"])
+        
         # 获取最大工具调用次数
         max_calls = self.config.get("tools.max_calls", 10)
         
@@ -443,9 +461,13 @@ class Agent:
             
             if not response.get("tool_calls"):
                 # 没有工具调用，使用流式输出
+                logger.info(f"No tool calls, starting stream for {session_id}")
                 async for chunk in self.llm.chat_stream(messages):
                     full_response += chunk
                     yield chunk
+                logger.info(f"Stream complete for {session_id}, length: {len(full_response)}")
+                # Add assistant response to L1
+                self.memory.add_message("assistant", full_response)
                 await self._persist_session(session_id, full_response)
                 return
             
@@ -499,19 +521,27 @@ class Agent:
             yield f"__THINKING__{json.dumps('已达到最大工具调用次数限制，正在生成最终回复...', ensure_ascii=False)}__THINKING_END__"
         
         # 生成最终回复
+        logger.info(f"Starting final stream response for {session_id}")
         async for chunk in self.llm.chat_stream(messages):
             full_response += chunk
             yield chunk
+        logger.info(f"Final stream complete for {session_id}, length: {len(full_response)}")
+        
+        # Add assistant response to L1
+        self.memory.add_message("assistant", full_response)
         
         await self._persist_session(session_id, full_response)
 
     async def _persist_session(self, session_id: str, response: str):
         from .database import Database
         db = Database(self.workspace / "ashkit.db")
-        messages = db.get_messages(session_id)
+        message_count = db.get_message_count(session_id)
         
-        if len(messages) >= MEMORY_PERSIST_THRESHOLD:
-            await self.memory.save_to_l2(self.agent_id, session_id, self.llm, "")
+        # Persist to L2 (episodic memory) when enough messages accumulated
+        if message_count >= MEMORY_PERSIST_THRESHOLD:
+            messages = db.get_latest_messages(session_id, limit=50)
+            # Use session_id as session_id, agent_id as user_id
+            await self.memory.save_to_l2(session_id, self.agent_id, self.llm, "")
             await self._extract_semantic_memory(session_id, messages)
 
     async def _persist_memory(self, user_id: str):
