@@ -261,10 +261,27 @@ class Agent:
 
         logger.info(f"Agent {self.agent_id} initialized with {len(self.skills)} skills")
 
-    async def process_message(self, user_id: str, message: str) -> str:
+    async def process_message(self, session_id: str, message: str) -> str:
         await self.initialize()
 
-        context = await self.memory.get_context(self.agent_id, user_id, self.llm)
+        from .database import Database
+        db = Database(self.workspace.parent / "ashkit.db")
+
+        # Load messages from database to ensure context persists across restarts
+        db_messages = db.get_messages(session_id)
+        context = [{"role": m["role"], "content": m["content"]} for m in db_messages]
+
+        # Add recent episodic memory summaries
+        recent_episodes = self.memory.l2.get_recent(session_id, limit=3)
+        if recent_episodes:
+            context.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": "Previous conversation summaries:\n"
+                    + "\n".join(e["summary"] for e in recent_episodes),
+                },
+            )
 
         system_prompt = await self._build_system_prompt()
         messages = [{"role": "system", "content": system_prompt}]
@@ -275,9 +292,9 @@ class Agent:
 
         # 使用工具调用循环，限制最大轮次
         max_calls = self.config.get("tools.max_calls", 10)
-        final_response = await self._process_with_tools(messages, user_id, max_calls)
-        
-        await self._persist_memory(user_id)
+        final_response = await self._process_with_tools(messages, session_id, max_calls)
+
+        await self._persist_session(session_id, final_response)
         return final_response
 
     async def _process_with_tools(self, messages: list[dict], user_id: str, max_rounds: int) -> str:
