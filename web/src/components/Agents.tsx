@@ -1,8 +1,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check, Heart, Play, Clock, Scroll, Camera } from '@phosphor-icons/react';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import { zhCN } from 'date-fns/locale/zh-CN';
+import 'react-datepicker/dist/react-datepicker.css';
 import { useToast } from './Toast';
 import * as api from '../api/client';
+
+registerLocale('zh-CN', zhCN);
+
+const formatDate = (date: Date | null): string => {
+  if (!date) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseDate = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  }
+  return null;
+};
 
 interface Provider {
   name: string;
@@ -524,13 +546,15 @@ export function Agents() {
                 <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
                   生日
                 </label>
-                <input
-                  type="date"
-                  value={formData.profile.birthday}
-                  onChange={(e) => updateProfile('birthday', e.target.value)}
+                <DatePicker
+                  selected={parseDate(formData.profile.birthday)}
+                  onChange={(date: Date | null) => updateProfile('birthday', formatDate(date))}
+                  locale="zh-CN"
+                  dateFormat="yyyy-MM-dd"
                   className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                     rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
                     focus:border-[var(--color-accent)] transition-all"
+                  placeholderText="选择生日"
                 />
               </div>
               
@@ -1249,12 +1273,14 @@ export function Agents() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">生日</label>
-                    <input
-                      type="date"
-                      value={editData.profile?.birthday || ''}
-                      onChange={(e) => updateEditProfile('birthday', e.target.value)}
+                    <DatePicker
+                      selected={parseDate(editData.profile?.birthday || '')}
+                      onChange={(date: Date | null) => updateEditProfile('birthday', formatDate(date))}
+                      locale="zh-CN"
+                      dateFormat="yyyy-MM-dd"
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
+                      placeholderText="选择生日"
                     />
                   </div>
                   <div>

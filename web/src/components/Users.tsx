@@ -1,10 +1,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { UserPlus, User, IdentificationBadge, PencilSimple, Check, Camera } from '@phosphor-icons/react';
+import { UserPlus, IdentificationBadge, PencilSimple, Check, Camera, User as UserIcon } from '@phosphor-icons/react';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import { zhCN } from 'date-fns/locale/zh-CN';
+import 'react-datepicker/dist/react-datepicker.css';
 import { useToast } from './Toast';
 import * as api from '../api/client';
 
-type User = api.User;
+registerLocale('zh-CN', zhCN);
+
+const formatDate = (date: Date | null): string => {
+  if (!date) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseDate = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  }
+  return null;
+};
 
 const defaultProfile = {
   name: '',
@@ -68,6 +88,8 @@ const mbtiOptions = [
   { value: 'ESTP', label: 'ESTP', desc: '企业家 - 精明的冒险家' },
   { value: 'ESFP', label: 'ESFP', desc: '表演者 - 自发的娱乐者' },
 ];
+
+type User = api.User;
 
 export function Users() {
   const showToast = useToast();
@@ -239,7 +261,7 @@ export function Users() {
           {/* Profile Settings */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-accent)]">
-              <User className="w-4 h-4" />
+              <UserIcon className="w-4 h-4" />
               人物档案
             </div>
             
@@ -299,13 +321,15 @@ export function Users() {
                 <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
                   生日
                 </label>
-                <input
-                  type="date"
-                  value={formData.profile.birthday}
-                  onChange={(e) => updateProfile('birthday', e.target.value)}
+                <DatePicker
+                  selected={parseDate(formData.profile.birthday)}
+                  onChange={(date: Date | null) => updateProfile('birthday', formatDate(date))}
+                  locale="zh-CN"
+                  dateFormat="yyyy-MM-dd"
                   className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                     rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
                     focus:border-[var(--color-accent)] transition-all"
+                  placeholderText="选择生日"
                 />
               </div>
               
@@ -578,7 +602,7 @@ export function Users() {
           <div className="text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--color-surface)] 
               flex items-center justify-center">
-              <User className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
+              <UserIcon className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
             </div>
             <h3 className="text-lg font-medium text-[var(--color-accent)] mb-1">暂无用户</h3>
             <p className="text-sm text-[var(--color-accent-muted)]">
@@ -601,7 +625,7 @@ export function Users() {
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[var(--color-surface)] 
                   flex items-center justify-center flex-shrink-0">
-                  <User className="w-5 h-5 text-[var(--color-accent)]" weight="duotone" />
+                  <UserIcon className="w-5 h-5 text-[var(--color-accent)]" weight="duotone" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="font-medium text-[var(--color-accent)]">
@@ -645,7 +669,7 @@ export function Users() {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <User className="w-6 h-6 text-[var(--color-accent)]" weight="duotone" />
+                      <UserIcon className="w-6 h-6 text-[var(--color-accent)]" weight="duotone" />
                     )}
                   </div>
                   {isEditing && (
@@ -875,12 +899,14 @@ export function Users() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">生日</label>
-                    <input
-                      type="date"
-                      value={editProfile?.birthday || ''}
-                      onChange={(e) => updateEditProfile('birthday', e.target.value)}
+                    <DatePicker
+                      selected={parseDate(editProfile?.birthday || '')}
+                      onChange={(date: Date | null) => updateEditProfile('birthday', formatDate(date))}
+                      locale="zh-CN"
+                      dateFormat="yyyy-MM-dd"
                       className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
                         rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
+                      placeholderText="选择生日"
                     />
                   </div>
                   <div>
