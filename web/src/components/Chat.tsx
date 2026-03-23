@@ -488,6 +488,7 @@ export function Chat() {
     try {
       const session = await api.createSession(currentAgentId);
       setSelectedSession(session.session_id);
+      selectedSessionRef.current = session.session_id;
       setShowNewSession(false);
       setMessages([]);
       loadSessions();

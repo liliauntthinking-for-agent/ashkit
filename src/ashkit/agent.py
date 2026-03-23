@@ -1,11 +1,19 @@
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
 MEMORY_PERSIST_THRESHOLD = 6
+
+
+def get_time_context() -> str:
+    weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    now = datetime.now()
+    weekday = weekdays[now.weekday()]
+    return f"[当前时间: {now.strftime('%Y年%m月%d日')} {weekday} {now.strftime('%H:%M')}]"
 
 
 class LLMClient:
@@ -258,7 +266,6 @@ class Agent:
 
         init_tools(self.workspace)
 
-        # Register skills as tools
         for skill in self.skills:
             register_tool(SkillTool(skill))
 
@@ -275,7 +282,7 @@ class Agent:
         await self.initialize()
 
         from .database import Database
-        db = Database(self.workspace.parent / "ashkit.db")
+        db = Database(self.workspace / "ashkit.db")
 
         # Check for compressed context first
         compressed_context = db.get_compressed_context(session_id)
@@ -290,6 +297,14 @@ class Agent:
 
         # Load messages from database (including current user message saved by web.py)
         db_messages = db.get_messages(session_id)
+        
+        is_first_message = len([m for m in db_messages if m["role"] == "user"]) == 1
+        if is_first_message:
+            context.append({
+                "role": "system",
+                "content": get_time_context()
+            })
+        
         context.extend([{"role": m["role"], "content": m["content"]} for m in db_messages])
 
         # Add recent episodic memory summaries
@@ -373,7 +388,7 @@ class Agent:
         await self.initialize()
 
         from .database import Database
-        db = Database(self.workspace.parent / "ashkit.db")
+        db = Database(self.workspace / "ashkit.db")
 
         # Check for compressed context first
         compressed_context = db.get_compressed_context(session_id)
@@ -388,6 +403,14 @@ class Agent:
 
         # Load all messages from database (including current user message saved by web.py)
         db_messages = db.get_messages(session_id)
+        
+        is_first_message = len([m for m in db_messages if m["role"] == "user"]) == 1
+        if is_first_message:
+            context.append({
+                "role": "system",
+                "content": get_time_context()
+            })
+        
         context.extend([{"role": m["role"], "content": m["content"]} for m in db_messages])
 
         # Add recent episodic memory summaries
@@ -419,11 +442,12 @@ class Agent:
             response = await self.llm.chat_with_tools(messages)
             
             if not response.get("tool_calls"):
-                # 没有工具调用，使用流式输出最终响应
-                async for chunk in self.llm.chat_stream(messages):
-                    full_response += chunk
-                    yield chunk
-                break
+                # 没有工具调用，直接返回内容
+                content = response.get("content", "")
+                full_response = content
+                yield content
+                await self._persist_session(session_id, full_response)
+                return
             
             # 有工具调用
             tool_call_count += 1
@@ -483,7 +507,7 @@ class Agent:
 
     async def _persist_session(self, session_id: str, response: str):
         from .database import Database
-        db = Database(self.workspace.parent / "ashkit.db")
+        db = Database(self.workspace / "ashkit.db")
         messages = db.get_messages(session_id)
         
         if len(messages) >= MEMORY_PERSIST_THRESHOLD:

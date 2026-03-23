@@ -36,12 +36,26 @@ class SkillLoader:
     async def _load_skill(self, path: Path, name: str) -> Skill | None:
         try:
             content = path.read_text(encoding="utf-8")
-            lines = content.split("\n")
             description = ""
-            for line in lines[1:]:
-                if line.strip():
-                    description = line.strip()
-                    break
+
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    frontmatter = parts[1]
+                    for line in frontmatter.strip().split("\n"):
+                        if line.startswith("description:"):
+                            description = line[12:].strip()
+                            break
+                        elif line.startswith("name:"):
+                            name = line[5:].strip()
+            
+            if not description:
+                lines = content.split("\n")
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith("---") and not line.startswith("#"):
+                        description = line
+                        break
 
             return Skill(name=name, description=description, content=content, path=path)
         except Exception as e:

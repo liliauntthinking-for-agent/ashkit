@@ -52,7 +52,7 @@ async def startup_event():
 
     agents = db.list_agents()
     for agent in agents:
-        heartbeat_config = agent.get("heartbeat", {})
+        heartbeat_config = agent.get("heartbeat") or {}
         if heartbeat_config.get("enabled", False):
             # Import here to avoid circular dependency
             start_heartbeat_scheduler(agent["agent_id"], heartbeat_config)
@@ -821,15 +821,6 @@ async def update_session(session_id: str, update: SessionUpdate):
     return {"status": "updated", "name": update.name}
 
 
-def get_time_prefix() -> str:
-    """Generate a time prefix for the first message of a session."""
-    from datetime import datetime
-    now = datetime.now()
-    weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-    weekday = weekdays[now.weekday()]
-    return f"[当前时间: {now.strftime('%Y年%m月%d日')} {weekday} {now.strftime('%H:%M')}]\n\n"
-
-
 async def generate_response(
     agent: Any, session_id: str, message: str
 ) -> AsyncGenerator[str, None]:
@@ -837,13 +828,7 @@ async def generate_response(
         messages = db.get_messages(session_id)
         is_first_message = len(messages) == 0
 
-        # Inject current time for first message
-        actual_message = message
-        if is_first_message:
-            actual_message = get_time_prefix() + message
-
-        # Save the actual message (with time prefix if first message)
-        db.add_message(session_id, "user", actual_message)
+        db.add_message(session_id, "user", message)
 
         if is_first_message:
             name = message[:50] + ("..." if len(message) > 50 else "")
@@ -853,7 +838,7 @@ async def generate_response(
         timeline: list[dict] = []
         current_tool: dict | None = None
 
-        async for chunk in agent.process_message_stream(session_id, actual_message):
+        async for chunk in agent.process_message_stream(session_id, message):
             # Send chunk to frontend first
             yield f"data: {json.dumps({'content': chunk})}\n\n"
             
@@ -912,13 +897,7 @@ async def send_message(session_id: str, message: MessageSend):
         messages = db.get_messages(session_id)
         is_first_message = len(messages) == 0
 
-        # Inject current time for first message
-        actual_message = message.content
-        if is_first_message:
-            actual_message = get_time_prefix() + message.content
-
-        # Save the actual message (with time prefix if first message)
-        db.add_message(session_id, "user", actual_message)
+        db.add_message(session_id, "user", message.content)
 
         if is_first_message:
             name = message.content[:50] + ("..." if len(message.content) > 50 else "")
