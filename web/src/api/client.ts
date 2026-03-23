@@ -419,3 +419,63 @@ export async function getMCPTools(): Promise<MCPTool[]> {
   const res = await fetch(`${API_BASE}/api/mcp/tools`);
   return res.json();
 }
+
+// Heartbeat APIs
+export interface HeartbeatConfig {
+  enabled: boolean;
+  interval_minutes: number;
+  prompt: string;
+}
+
+export interface HeartbeatStatus {
+  agent_id: string;
+  heartbeat: HeartbeatConfig | null;
+  is_running: boolean;
+}
+
+export interface HeartbeatLog {
+  id: number;
+  agent_id: string;
+  prompt: string;
+  response: string;
+  created_at: string;
+}
+
+export async function getAgentHeartbeat(agentId: string): Promise<HeartbeatStatus> {
+  const res = await fetch(`${API_BASE}/api/agents/${agentId}/heartbeat`);
+  return res.json();
+}
+
+export async function updateAgentHeartbeat(agentId: string, config: HeartbeatConfig): Promise<HeartbeatStatus> {
+  const res = await fetch(`${API_BASE}/api/agents/${agentId}/heartbeat`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to update heartbeat');
+  }
+  return res.json();
+}
+
+export async function triggerHeartbeat(agentId: string, prompt?: string): Promise<{ response: string; memory_context: string }> {
+  const url = prompt
+    ? `${API_BASE}/api/agents/${agentId}/heartbeat/trigger?prompt=${encodeURIComponent(prompt)}`
+    : `${API_BASE}/api/agents/${agentId}/heartbeat/trigger`;
+  const res = await fetch(url, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to trigger heartbeat');
+  }
+  return res.json();
+}
+
+export async function getHeartbeatLogs(agentId: string, limit = 20): Promise<{ agent_id: string; logs: HeartbeatLog[] }> {
+  const res = await fetch(`${API_BASE}/api/agents/${agentId}/heartbeat/logs?limit=${limit}`);
+  return res.json();
+}
+
+export async function clearHeartbeatLogs(agentId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/agents/${agentId}/heartbeat/logs`, { method: 'DELETE' });
+}

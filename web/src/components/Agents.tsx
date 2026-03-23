@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check } from '@phosphor-icons/react';
+import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check, Heart, Play, Clock, Scroll } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import * as api from '../api/client';
 
@@ -116,6 +116,15 @@ export function Agents() {
     user_id: string;
     relation: string;
   }>({ profile: null, user_id: '', relation: '' });
+  const [heartbeatConfig, setHeartbeatConfig] = useState<api.HeartbeatConfig>({
+    enabled: false,
+    interval_minutes: 30,
+    prompt: '根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。',
+  });
+  const [heartbeatRunning, setHeartbeatRunning] = useState(false);
+  const [heartbeatLogs, setHeartbeatLogs] = useState<api.HeartbeatLog[]>([]);
+  const [showHeartbeatLogs, setShowHeartbeatLogs] = useState(false);
+  const [heartbeatLoading, setHeartbeatLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -182,6 +191,21 @@ export function Agents() {
       setShowDetail(true);
       setIsEditing(false);
       setEditData({ profile: null, user_id: '', relation: '' });
+
+      // Fetch heartbeat config
+      const heartbeatStatus = await api.getAgentHeartbeat(agent.agent_id);
+      if (heartbeatStatus.heartbeat) {
+        setHeartbeatConfig(heartbeatStatus.heartbeat);
+      } else {
+        setHeartbeatConfig({
+          enabled: false,
+          interval_minutes: 30,
+          prompt: '根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。',
+        });
+      }
+      setHeartbeatRunning(heartbeatStatus.is_running);
+      setHeartbeatLogs([]);
+      setShowHeartbeatLogs(false);
     } catch (e: unknown) {
       const error = e as Error;
       showToast(error.message, 'error');
@@ -242,6 +266,50 @@ export function Agents() {
       ...formData,
       profile: { ...formData.profile, [key]: value },
     });
+  };
+
+  const handleUpdateHeartbeat = async () => {
+    if (!selectedAgent) return;
+    setHeartbeatLoading(true);
+    try {
+      const status = await api.updateAgentHeartbeat(selectedAgent.agent_id, heartbeatConfig);
+      setHeartbeatRunning(status.is_running);
+      showToast(heartbeatConfig.enabled ? '心跳已启用' : '心跳已禁用');
+    } catch (e: unknown) {
+      const error = e as Error;
+      showToast(error.message, 'error');
+    } finally {
+      setHeartbeatLoading(false);
+    }
+  };
+
+  const handleTriggerHeartbeat = async () => {
+    if (!selectedAgent) return;
+    setHeartbeatLoading(true);
+    try {
+      await api.triggerHeartbeat(selectedAgent.agent_id);
+      showToast('心跳触发成功');
+      // Refresh logs
+      const logsData = await api.getHeartbeatLogs(selectedAgent.agent_id);
+      setHeartbeatLogs(logsData.logs);
+    } catch (e: unknown) {
+      const error = e as Error;
+      showToast(error.message, 'error');
+    } finally {
+      setHeartbeatLoading(false);
+    }
+  };
+
+  const handleFetchHeartbeatLogs = async () => {
+    if (!selectedAgent) return;
+    try {
+      const logsData = await api.getHeartbeatLogs(selectedAgent.agent_id);
+      setHeartbeatLogs(logsData.logs);
+      setShowHeartbeatLogs(true);
+    } catch (e: unknown) {
+      const error = e as Error;
+      showToast(error.message, 'error');
+    }
   };
 
   return (
@@ -982,6 +1050,122 @@ export function Agents() {
                     </div>
                   </div>
                 )}
+
+                {/* Heartbeat Config */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-[var(--color-accent)] flex items-center gap-2">
+                      <Heart className="w-4 h-4" weight="duotone" />
+                      心跳机制
+                    </h3>
+                    <div className="flex items-center gap-1">
+                      {heartbeatRunning && (
+                        <span className="text-xs text-emerald-500 flex items-center gap-1">
+                          <Circle className="w-2 h-2" weight="fill" /> 运行中
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-[var(--color-surface)] rounded-xl p-4 space-y-4">
+                    {/* Enable/Disable */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-sm font-medium text-[var(--color-accent)]">启用心跳</label>
+                        <p className="text-xs text-[var(--color-accent-muted)]">定时执行系统提示词</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={heartbeatConfig.enabled}
+                          onChange={(e) => setHeartbeatConfig({ ...heartbeatConfig, enabled: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-white border border-[var(--color-border)] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-accent)]"></div>
+                      </label>
+                    </div>
+
+                    {/* Interval */}
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                        <Clock className="w-4 h-4 inline mr-1" />
+                        间隔时间 (分钟)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={heartbeatConfig.interval_minutes}
+                        onChange={(e) => setHeartbeatConfig({ ...heartbeatConfig, interval_minutes: parseInt(e.target.value) || 30 })}
+                        className="w-24 px-3 py-2 bg-white border border-[var(--color-border)] rounded-lg text-sm"
+                      />
+                    </div>
+
+                    {/* Prompt */}
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                        系统提示词
+                      </label>
+                      <textarea
+                        value={heartbeatConfig.prompt}
+                        onChange={(e) => setHeartbeatConfig({ ...heartbeatConfig, prompt: e.target.value })}
+                        rows={3}
+                        className="w-full px-3 py-2 bg-white border border-[var(--color-border)] rounded-lg text-sm resize-none"
+                        placeholder="心跳时执行的提示词..."
+                      />
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-[var(--color-border)]">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleUpdateHeartbeat}
+                        disabled={heartbeatLoading}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-accent)] text-white rounded-lg text-sm"
+                      >
+                        <Check className="w-4 h-4" />
+                        保存配置
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleTriggerHeartbeat}
+                        disabled={heartbeatLoading}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[var(--color-border)] rounded-lg text-sm"
+                      >
+                        <Play className="w-4 h-4" />
+                        立即触发
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleFetchHeartbeatLogs}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[var(--color-border)] rounded-lg text-sm"
+                      >
+                        <Scroll className="w-4 h-4" />
+                        日志
+                      </motion.button>
+                    </div>
+
+                    {/* Logs */}
+                    {showHeartbeatLogs && heartbeatLogs.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+                        <h4 className="text-sm font-medium text-[var(--color-accent)] mb-2">心跳日志</h4>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {heartbeatLogs.map((log) => (
+                            <div key={log.id} className="p-3 bg-white rounded-lg border border-[var(--color-border)]">
+                              <div className="text-xs text-[var(--color-accent-muted)] mb-1">
+                                {new Date(log.created_at).toLocaleString()}
+                              </div>
+                              {log.response && (
+                                <div className="text-sm text-[var(--color-accent)]">{log.response}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 </div>
             ) : (

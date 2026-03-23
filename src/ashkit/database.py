@@ -58,6 +58,17 @@ class Database:
             
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+
+            CREATE TABLE IF NOT EXISTS heartbeat_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                prompt TEXT,
+                response TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES agents(agent_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_heartbeat_agent ON heartbeat_logs(agent_id);
         """)
         conn.commit()
         
@@ -70,6 +81,8 @@ class Database:
             conn.execute("ALTER TABLE agents ADD COLUMN user_id TEXT REFERENCES users(user_id)")
         if "relation" not in columns:
             conn.execute("ALTER TABLE agents ADD COLUMN relation TEXT")
+        if "heartbeat" not in columns:
+            conn.execute("ALTER TABLE agents ADD COLUMN heartbeat TEXT")
         
         try:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id)")
@@ -110,6 +123,8 @@ class Database:
             result["profile"] = json.loads(result["profile"])
         if result.get("mcp_servers"):
             result["mcp_servers"] = json.loads(result["mcp_servers"])
+        if result.get("heartbeat"):
+            result["heartbeat"] = json.loads(result["heartbeat"])
         return result
 
     def list_agents(self) -> list[dict]:
@@ -123,6 +138,8 @@ class Database:
                 r["profile"] = json.loads(r["profile"])
             if r.get("mcp_servers"):
                 r["mcp_servers"] = json.loads(r["mcp_servers"])
+            if r.get("heartbeat"):
+                r["heartbeat"] = json.loads(r["heartbeat"])
             results.append(r)
         return results
 
@@ -287,6 +304,51 @@ class Database:
         conn = self._get_conn()
         conn.execute("UPDATE agents SET user_id = NULL, relation = NULL WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def update_agent_heartbeat(self, agent_id: str, heartbeat: dict | None) -> dict | None:
+        """Update agent heartbeat config"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        heartbeat_json = json.dumps(heartbeat, ensure_ascii=False) if heartbeat else None
+        conn.execute(
+            "UPDATE agents SET heartbeat = ?, updated_at = ? WHERE agent_id = ?",
+            (heartbeat_json, now, agent_id),
+        )
+        conn.commit()
+        conn.close()
+        return self.get_agent(agent_id)
+
+    def add_heartbeat_log(self, agent_id: str, prompt: str, response: str) -> dict:
+        """Add a heartbeat log entry"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        cursor = conn.execute(
+            "INSERT INTO heartbeat_logs (agent_id, prompt, response, created_at) VALUES (?, ?, ?, ?)",
+            (agent_id, prompt, response, now),
+        )
+        log_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return {"id": log_id, "agent_id": agent_id, "prompt": prompt, "response": response, "created_at": now}
+
+    def get_heartbeat_logs(self, agent_id: str, limit: int = 20) -> list[dict]:
+        """Get heartbeat logs for an agent"""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM heartbeat_logs WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
+            (agent_id, limit),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def delete_heartbeat_logs(self, agent_id: str) -> bool:
+        """Delete all heartbeat logs for an agent"""
+        conn = self._get_conn()
+        conn.execute("DELETE FROM heartbeat_logs WHERE agent_id = ?", (agent_id,))
         affected = conn.total_changes
         conn.commit()
         conn.close()

@@ -26,6 +26,21 @@ if _assets_path.exists():
     app.mount("/assets", StaticFiles(directory=str(_assets_path)), name="assets")
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize heartbeat schedulers for existing agents."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    agents = db.list_agents()
+    for agent in agents:
+        heartbeat_config = agent.get("heartbeat", {})
+        if heartbeat_config.get("enabled", False):
+            # Import here to avoid circular dependency
+            start_heartbeat_scheduler(agent["agent_id"], heartbeat_config)
+            logger.info(f"Started heartbeat for existing agent {agent['agent_id']}")
+
+
 class AgentProfile(BaseModel):
     name: str = ""
     nickname: str = ""
@@ -129,7 +144,14 @@ class SettingsUpdate(BaseModel):
     tools_enabled: bool = True
 
 
+class HeartbeatConfig(BaseModel):
+    enabled: bool = False
+    interval_minutes: int = 30
+    prompt: str = "根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。"
+
+
 agents_runtime: dict[str, Any] = {}
+heartbeat_tasks: dict[str, Any] = {}
 
 
 async def get_agent_runtime(agent_id: str) -> Any:
@@ -348,12 +370,18 @@ async def get_agent(agent_id: str):
 
 @app.delete("/api/agents/{agent_id}")
 async def delete_agent(agent_id: str):
+    # Stop heartbeat scheduler
+    stop_heartbeat_scheduler(agent_id)
+
+    # Delete heartbeat logs
+    db.delete_heartbeat_logs(agent_id)
+
     if not db.delete_agent(agent_id):
         raise HTTPException(status_code=404, detail="Agent not found")
-    
+
     if agent_id in agents_runtime:
         del agents_runtime[agent_id]
-    
+
     return {"status": "deleted"}
 
 
@@ -831,6 +859,149 @@ async def delete_mcp_server(name: str):
 async def get_mcp_tools():
     from .mcp_client import list_all_mcp_tools
     return await list_all_mcp_tools()
+
+
+# Heartbeat Scheduler
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def heartbeat_scheduler(agent_id: str, interval_minutes: int, prompt: str):
+    """Background task that runs heartbeat periodically for an agent."""
+    while True:
+        try:
+            await asyncio.sleep(interval_minutes * 60)
+
+            # Check if agent still exists and heartbeat is enabled
+            agent_info = db.get_agent(agent_id)
+            if not agent_info:
+                logger.info(f"Agent {agent_id} no longer exists, stopping heartbeat")
+                break
+
+            heartbeat_config = agent_info.get("heartbeat", {})
+            if not heartbeat_config.get("enabled", False):
+                logger.info(f"Heartbeat disabled for {agent_id}, stopping")
+                break
+
+            # Run heartbeat
+            agent = await get_agent_runtime(agent_id)
+            result = await agent.heartbeat(prompt)
+
+            # Log the heartbeat
+            db.add_heartbeat_log(agent_id, prompt, result.get("response", ""))
+            logger.info(f"Heartbeat completed for {agent_id}")
+
+        except asyncio.CancelledError:
+            logger.info(f"Heartbeat task cancelled for {agent_id}")
+            break
+        except Exception as e:
+            logger.error(f"Heartbeat error for {agent_id}: {e}")
+
+
+def start_heartbeat_scheduler(agent_id: str, heartbeat_config: dict):
+    """Start a heartbeat scheduler for an agent."""
+    if agent_id in heartbeat_tasks:
+        heartbeat_tasks[agent_id].cancel()
+
+    if not heartbeat_config.get("enabled", False):
+        return
+
+    interval = heartbeat_config.get("interval_minutes", 30)
+    prompt = heartbeat_config.get("prompt", "")
+    task = asyncio.create_task(heartbeat_scheduler(agent_id, interval, prompt))
+    heartbeat_tasks[agent_id] = task
+    logger.info(f"Started heartbeat for {agent_id} with interval {interval} minutes")
+
+
+def stop_heartbeat_scheduler(agent_id: str):
+    """Stop heartbeat scheduler for an agent."""
+    if agent_id in heartbeat_tasks:
+        heartbeat_tasks[agent_id].cancel()
+        del heartbeat_tasks[agent_id]
+        logger.info(f"Stopped heartbeat for {agent_id}")
+
+
+@app.get("/api/agents/{agent_id}/heartbeat")
+async def get_agent_heartbeat(agent_id: str):
+    """Get agent heartbeat configuration and status."""
+    agent = db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    heartbeat_config = agent.get("heartbeat", {})
+    is_running = agent_id in heartbeat_tasks
+
+    return {
+        "agent_id": agent_id,
+        "heartbeat": heartbeat_config,
+        "is_running": is_running,
+    }
+
+
+@app.patch("/api/agents/{agent_id}/heartbeat")
+async def update_agent_heartbeat(agent_id: str, heartbeat: HeartbeatConfig):
+    """Update agent heartbeat configuration."""
+    agent = db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    heartbeat_dict = heartbeat.model_dump()
+    db.update_agent_heartbeat(agent_id, heartbeat_dict)
+
+    # Restart scheduler with new config
+    if heartbeat.enabled:
+        start_heartbeat_scheduler(agent_id, heartbeat_dict)
+    else:
+        stop_heartbeat_scheduler(agent_id)
+
+    return {"agent_id": agent_id, "heartbeat": heartbeat_dict}
+
+
+@app.post("/api/agents/{agent_id}/heartbeat/trigger")
+async def trigger_agent_heartbeat(agent_id: str, prompt: str | None = None):
+    """Manually trigger a heartbeat for an agent."""
+    agent = db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    try:
+        agent_runtime = await get_agent_runtime(agent_id)
+        result = await agent_runtime.heartbeat(prompt)
+
+        # Log the heartbeat
+        db.add_heartbeat_log(
+            agent_id,
+            prompt or result.get("prompt", ""),
+            result.get("response", "")
+        )
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_id}/heartbeat/logs")
+async def get_agent_heartbeat_logs(agent_id: str, limit: int = 20):
+    """Get heartbeat logs for an agent."""
+    agent = db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    logs = db.get_heartbeat_logs(agent_id, limit)
+    return {"agent_id": agent_id, "logs": logs}
+
+
+@app.delete("/api/agents/{agent_id}/heartbeat/logs")
+async def clear_agent_heartbeat_logs(agent_id: str):
+    """Clear all heartbeat logs for an agent."""
+    agent = db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    db.delete_heartbeat_logs(agent_id)
+    return {"status": "deleted"}
 
 
 @app.get("/")

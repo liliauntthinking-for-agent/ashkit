@@ -42,6 +42,11 @@ DEFAULT_CONFIG = {
         "host": "0.0.0.0",
         "port": 47291,
     },
+    "heartbeat": {
+        "enabled": False,
+        "interval_minutes": 30,
+        "prompt": "根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。",
+    },
 }
 
 

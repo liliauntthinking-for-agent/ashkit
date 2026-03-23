@@ -613,3 +613,61 @@ You have direct access to the user's local file system and can execute shell com
         if not tool:
             return f"Tool {tool_name} not found"
         return await tool.execute(**kwargs)
+
+    async def heartbeat(self, prompt: str | None = None) -> dict:
+        """Execute heartbeat - think based on memory content.
+
+        Args:
+            prompt: Custom prompt for heartbeat. If None, uses default prompt.
+
+        Returns:
+            dict with 'response' and 'memory_context' keys
+        """
+        await self.initialize()
+
+        # Get memory context
+        memory_context = ""
+        l2_episodes = self.memory.l2.get_by_user(self.agent_id, limit=5)
+        if l2_episodes:
+            memory_context += "Recent conversation summaries:\n"
+            for ep in l2_episodes:
+                memory_context += f"- {ep.get('summary', '')}\n"
+
+        l3_memories = self.memory.l3.get_all(self.agent_id)
+        if l3_memories:
+            memory_context += "\nLong-term memories:\n"
+            for mem in l3_memories[:5]:
+                memory_context += f"- {mem.get('content', '')}\n"
+
+        # Use provided prompt or default
+        heartbeat_prompt = prompt or self.config.get(
+            "heartbeat.prompt",
+            "根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。"
+        )
+
+        # Build messages
+        system_prompt = await self._build_system_prompt()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"[心跳检查]\n\n当前记忆:\n{memory_context if memory_context else '暂无记忆内容'}\n\n{heartbeat_prompt}"},
+        ]
+
+        # Get response
+        try:
+            response = await self.llm.chat(messages)
+            logger.info(f"Heartbeat for {self.agent_id}: {response[:100]}...")
+
+            return {
+                "agent_id": self.agent_id,
+                "response": response,
+                "memory_context": memory_context,
+                "prompt": heartbeat_prompt,
+            }
+        except Exception as e:
+            logger.error(f"Heartbeat failed for {self.agent_id}: {e}")
+            return {
+                "agent_id": self.agent_id,
+                "error": str(e),
+                "memory_context": memory_context,
+                "prompt": heartbeat_prompt,
+            }
