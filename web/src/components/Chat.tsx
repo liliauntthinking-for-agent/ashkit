@@ -247,7 +247,6 @@ export function Chat() {
   const showToast = useToast();
   const { selectedSessionId, setSelectedSessionId } = useApp();
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [currentAgentId, setCurrentAgentId] = useState<string>('');
@@ -280,15 +279,6 @@ export function Chat() {
     }
   }, []);
 
-  const loadUsers = useCallback(async () => {
-    try {
-      const data = await api.getUsers();
-      setUsers(data);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
-
   const loadSessions = useCallback(async () => {
     try {
       const data = await api.getSessions();
@@ -311,11 +301,11 @@ export function Chat() {
       const session = await api.getSession(sessionId, 20);
       setCurrentAgentId(session.agent_id);
       
-      const agent = agents.find(a => a.agent_id === session.agent_id);
+      const agent = await api.getAgent(session.agent_id);
       setCurrentAgent(agent || null);
       
       if (agent?.user_id) {
-        const user = users.find(u => u.user_id === agent.user_id);
+        const user = await api.getUser(agent.user_id);
         setCurrentUser(user || null);
       } else {
         setCurrentUser(null);
@@ -464,9 +454,8 @@ export function Chat() {
 
   useEffect(() => {
     loadAgents();
-    loadUsers();
     loadSessions();
-  }, [loadAgents, loadUsers, loadSessions]);
+  }, [loadAgents, loadSessions]);
 
   // Update token count when session or messages change
   const updateTokenCount = useCallback(async () => {

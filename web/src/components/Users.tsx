@@ -106,6 +106,8 @@ export function Users() {
   const [showDetail, setShowDetail] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editProfile, setEditProfile] = useState<typeof defaultProfile | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string>('');
 
   const loadData = useCallback(async () => {
     try {
@@ -135,7 +137,18 @@ export function Users() {
         user_id: formData.user_id.trim(),
         profile: profileData,
       });
+      
+      if (avatarFile) {
+        try {
+          await api.uploadAvatar('user', formData.user_id.trim(), avatarFile);
+        } catch {
+          showToast('用户已创建，但头像上传失败', 'error');
+        }
+      }
+      
       setFormData({ user_id: '', profile: { ...defaultProfile } });
+      setAvatarFile(null);
+      setAvatarPreview('');
       setShowForm(false);
       loadData();
       showToast('创建成功');
@@ -245,19 +258,52 @@ export function Users() {
               <IdentificationBadge className="w-4 h-4" />
               基本信息
             </div>
-            <div className="w-full md:w-1/3">
-              <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                用户 ID <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="输入唯一标识符"
-                value={formData.user_id}
-                onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
-                className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                  rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                  focus:border-[var(--color-accent)] transition-all"
-              />
+            <div className="flex items-start gap-6">
+              <div className="flex-shrink-0">
+                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                  头像
+                </label>
+                <label className="relative w-20 h-20 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center cursor-pointer hover:border-[var(--color-accent)] transition-colors overflow-hidden group">
+                  {avatarPreview ? (
+                    <img src={avatarPreview} alt="头像预览" className="w-full h-full object-cover" />
+                  ) : (
+                    <UserIcon className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
+                  )}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Camera className="w-6 h-6 text-white" weight="fill" />
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setAvatarFile(file);
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          setAvatarPreview(ev.target?.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="flex-1 max-w-xs">
+                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                  用户 ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="输入唯一标识符"
+                  value={formData.user_id}
+                  onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                    focus:border-[var(--color-accent)] transition-all"
+                />
+              </div>
             </div>
           </div>
 

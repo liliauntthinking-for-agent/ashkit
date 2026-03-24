@@ -151,6 +151,8 @@ export function Agents() {
   const [heartbeatLogs, setHeartbeatLogs] = useState<api.HeartbeatLog[]>([]);
   const [showHeartbeatLogs, setShowHeartbeatLogs] = useState(false);
   const [heartbeatLoading, setHeartbeatLoading] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string>('');
 
   const loadData = useCallback(async () => {
     try {
@@ -200,7 +202,18 @@ export function Agents() {
         user_id: formData.user_id || undefined,
         relation: formData.relation || undefined,
       });
+      
+      if (avatarFile) {
+        try {
+          await api.uploadAvatar('agent', formData.agent_id.trim(), avatarFile);
+        } catch {
+          showToast('Agent 已创建，但头像上传失败', 'error');
+        }
+      }
+      
       setFormData({ agent_id: '', provider: '', model: '', profile: { ...defaultProfile }, user_id: '', relation: '' });
+      setAvatarFile(null);
+      setAvatarPreview('');
       setShowForm(false);
       loadData();
       showToast('创建成功');
@@ -380,60 +393,93 @@ export function Agents() {
               <IdentificationBadge className="w-4 h-4" />
               基本设置
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+            <div className="flex items-start gap-6">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  Agent ID <span className="text-red-500">*</span>
+                  头像
                 </label>
-                <input
-                  type="text"
-                  placeholder="输入唯一标识符"
-                  value={formData.agent_id}
-                  onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                    focus:border-[var(--color-accent)] transition-all"
-                />
+                <label className="relative w-20 h-20 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center cursor-pointer hover:border-[var(--color-accent)] transition-colors overflow-hidden group">
+                  {avatarPreview ? (
+                    <img src={avatarPreview} alt="头像预览" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-8 h-8 text-[var(--color-accent-muted)]" weight="duotone" />
+                  )}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Camera className="w-6 h-6 text-white" weight="fill" />
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setAvatarFile(file);
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          setAvatarPreview(ev.target?.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  Provider <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.provider}
-                  onChange={(e) => setFormData({ ...formData, provider: e.target.value, model: '' })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                >
-                  <option value="">选择 Provider</option>
-                  {providers.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  模型 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.model}
-                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                  disabled={!formData.provider}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                    disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="">
-                    {!formData.provider
-                      ? '请先选择 Provider'
-                      : selectedProvider?.models.length === 0
-                      ? '该 Provider 暂无模型'
-                      : '选择模型'}
-                  </option>
-                  {selectedProvider?.models.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                    Agent ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="输入唯一标识符"
+                    value={formData.agent_id}
+                    onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                      focus:border-[var(--color-accent)] transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                    Provider <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.provider}
+                    onChange={(e) => setFormData({ ...formData, provider: e.target.value, model: '' })}
+                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
+                  >
+                    <option value="">选择 Provider</option>
+                    {providers.map((p) => (
+                      <option key={p.name} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                    模型 <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.model}
+                    onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                    disabled={!formData.provider}
+                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!formData.provider
+                        ? '请先选择 Provider'
+                        : selectedProvider?.models.length === 0
+                        ? '该 Provider 暂无模型'
+                        : '选择模型'}
+                    </option>
+                    {selectedProvider?.models.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
