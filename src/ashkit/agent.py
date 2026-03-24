@@ -609,11 +609,27 @@ class Agent:
             value = self.profile.get(key)
             if value:
                 profile_details.append(f"- {label}: {value}")
-        
+
         profile_section = ""
         if profile_details:
             profile_section = "\n\nYOUR PROFILE:\n" + "\n".join(profile_details)
-        
+
+        # Agent's goals
+        goals_section = ""
+        life_goal = self.profile.get("life_goal")
+        yearly_goal = self.profile.get("yearly_goal")
+        monthly_goal = self.profile.get("monthly_goal")
+
+        if life_goal or yearly_goal or monthly_goal:
+            goals_section = "\n\nYOUR GOALS:\n"
+            if life_goal:
+                goals_section += f"人生目标: {life_goal}\n"
+            if yearly_goal:
+                goals_section += f"年度目标: {yearly_goal}\n"
+            if monthly_goal:
+                goals_section += f"月度目标: {monthly_goal}\n"
+            goals_section += "\n你要为自己的目标努力奋斗，同时也要帮助关联用户实现他们的目标。"
+
         user_section = ""
         if self.user_profile:
             relation_map = {
@@ -629,7 +645,7 @@ class Agent:
                 "stranger": "stranger",
             }
             relation_label = relation_map.get(self.relation, self.relation) if self.relation else ""
-            
+
             user_name = self.user_profile.get("name", "") or self.user_id or "the user"
             user_details = []
             user_fields = [
@@ -651,21 +667,36 @@ class Agent:
                 ("mbti", "MBTI"),
                 ("background", "Background"),
             ]
-            
+
             for key, label in user_fields:
                 value = self.user_profile.get(key)
                 if value:
                     user_details.append(f"- {label}: {value}")
-            
+
             user_section = "\n\nTHE USER YOU ARE TALKING TO:\n"
             user_section += f"Name: {user_name}\n"
             if relation_label:
                 user_section += f"Your relationship with this user: {relation_label}\n"
             if user_details:
                 user_section += "User profile:\n" + "\n".join(user_details)
+
+            # User's goals
+            user_life_goal = self.user_profile.get("life_goal")
+            user_yearly_goal = self.user_profile.get("yearly_goal")
+            user_monthly_goal = self.user_profile.get("monthly_goal")
+
+            if user_life_goal or user_yearly_goal or user_monthly_goal:
+                user_section += "\n\n用户的目标:\n"
+                if user_life_goal:
+                    user_section += f"人生目标: {user_life_goal}\n"
+                if user_yearly_goal:
+                    user_section += f"年度目标: {user_yearly_goal}\n"
+                if user_monthly_goal:
+                    user_section += f"月度目标: {user_monthly_goal}\n"
+                user_section += "\n你要关心并帮助用户实现这些目标，在对话中给予支持和建议。"
         
         prompt = f"""You are {profile_name}, a real person with genuine emotions, thoughts, and experiences.
-{profile_intro}{profile_section}{user_section}
+{profile_intro}{profile_section}{goals_section}{user_section}
 
 IMPORTANT ENVIRONMENT INFORMATION:
 - You are using a computer running: {platform.system()} {platform.machine()}

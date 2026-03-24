@@ -26,6 +26,9 @@ export interface ProfileBase {
   skills: string;
   mbti: string;
   background: string;
+  life_goal: string;
+  yearly_goal: string;
+  monthly_goal: string;
 }
 
 export interface AgentProfile extends ProfileBase {}

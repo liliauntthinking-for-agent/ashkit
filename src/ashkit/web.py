@@ -79,6 +79,9 @@ class AgentProfile(BaseModel):
     skills: str = ""
     mbti: str = ""
     background: str = ""
+    life_goal: str = ""  # 人生目标
+    yearly_goal: str = ""  # 年度目标
+    monthly_goal: str = ""  # 月度目标
 
 
 class UserProfile(BaseModel):
@@ -101,6 +104,9 @@ class UserProfile(BaseModel):
     skills: str = ""
     mbti: str = ""
     background: str = ""
+    life_goal: str = ""  # 人生目标
+    yearly_goal: str = ""  # 年度目标
+    monthly_goal: str = ""  # 月度目标
 
 
 class AgentCreate(BaseModel):

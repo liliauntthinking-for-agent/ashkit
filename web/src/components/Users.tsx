@@ -46,6 +46,9 @@ const defaultProfile = {
   skills: '',
   mbti: '',
   background: '',
+  life_goal: '',
+  yearly_goal: '',
+  monthly_goal: '',
 };
 
 const genderOptions = [
@@ -571,6 +574,55 @@ export function Users() {
                   focus:border-[var(--color-accent)] transition-all resize-none"
               />
             </div>
+
+            {/* Goals */}
+            <div className="space-y-4 pt-4 border-t border-[var(--color-border)]">
+              <h4 className="text-sm font-semibold text-[var(--color-accent)]">目标设定</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                    人生目标
+                  </label>
+                  <textarea
+                    placeholder="长远的人生追求..."
+                    value={formData.profile.life_goal}
+                    onChange={(e) => updateProfile('life_goal', e.target.value)}
+                    rows={2}
+                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                      focus:border-[var(--color-accent)] transition-all resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                    年度目标
+                  </label>
+                  <textarea
+                    placeholder="今年想完成的事..."
+                    value={formData.profile.yearly_goal}
+                    onChange={(e) => updateProfile('yearly_goal', e.target.value)}
+                    rows={2}
+                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                      focus:border-[var(--color-accent)] transition-all resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
+                    月度目标
+                  </label>
+                  <textarea
+                    placeholder="这个月要完成的事..."
+                    value={formData.profile.monthly_goal}
+                    onChange={(e) => updateProfile('monthly_goal', e.target.value)}
+                    rows={2}
+                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
+                      focus:border-[var(--color-accent)] transition-all resize-none"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           
           <div className="flex gap-3 pt-2">
@@ -856,6 +908,32 @@ export function Users() {
                         <p className="text-sm text-[var(--color-accent)] mt-1">{selectedUser.profile.background}</p>
                       </div>
                     )}
+                    {/* Goals */}
+                    {(selectedUser.profile.life_goal || selectedUser.profile.yearly_goal || selectedUser.profile.monthly_goal) && (
+                      <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+                        <h4 className="text-sm font-semibold text-[var(--color-accent)] mb-3">目标设定</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {selectedUser.profile.life_goal && (
+                            <div>
+                              <label className="text-xs text-[var(--color-accent-muted)]">人生目标</label>
+                              <p className="text-sm text-[var(--color-accent)] mt-1">{selectedUser.profile.life_goal}</p>
+                            </div>
+                          )}
+                          {selectedUser.profile.yearly_goal && (
+                            <div>
+                              <label className="text-xs text-[var(--color-accent-muted)]">年度目标</label>
+                              <p className="text-sm text-[var(--color-accent)] mt-1">{selectedUser.profile.yearly_goal}</p>
+                            </div>
+                          )}
+                          {selectedUser.profile.monthly_goal && (
+                            <div>
+                              <label className="text-xs text-[var(--color-accent-muted)]">月度目标</label>
+                              <p className="text-sm text-[var(--color-accent)] mt-1">{selectedUser.profile.monthly_goal}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -1062,7 +1140,44 @@ export function Users() {
                       rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-none"
                   />
                 </div>
-                
+
+                {/* Goals */}
+                <div className="space-y-4 pt-4 border-t border-[var(--color-border)]">
+                  <h4 className="text-sm font-semibold text-[var(--color-accent)]">目标设定</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">人生目标</label>
+                      <textarea
+                        value={editProfile?.life_goal || ''}
+                        onChange={(e) => updateEditProfile('life_goal', e.target.value)}
+                        rows={2}
+                        className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                          rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">年度目标</label>
+                      <textarea
+                        value={editProfile?.yearly_goal || ''}
+                        onChange={(e) => updateEditProfile('yearly_goal', e.target.value)}
+                        rows={2}
+                        className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                          rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">月度目标</label>
+                      <textarea
+                        value={editProfile?.monthly_goal || ''}
+                        onChange={(e) => updateEditProfile('monthly_goal', e.target.value)}
+                        rows={2}
+                        className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
+                          rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-4 border-t border-[var(--color-border)]">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
