@@ -819,18 +819,68 @@ You have a computer with access to files and can run commands. You have skills a
         send_tool = SendMessageTool(send_callback=send_callback, sessions=sessions)
         register_tool(send_tool)
 
+        # Get recent heartbeat-sent messages to avoid repeating
+        from datetime import datetime, timedelta
+        recent_sent_messages = []
+        last_heartbeat_time = None
+
+        for session in sessions[:5]:
+            session_id = session["session_id"]
+            msgs = db.get_latest_messages(session_id, limit=5)
+            for msg in msgs:
+                # Check if this was sent by heartbeat (assistant message after the last user message)
+                if msg["role"] == "assistant":
+                    metadata = msg.get("metadata") or {}
+                    if metadata.get("heartbeat"):
+                        recent_sent_messages.append({
+                            "session_id": session_id,
+                            "content": msg["content"][:100],
+                            "time": msg.get("created_at", "")[:16]
+                        })
+                        # Track the most recent heartbeat time
+                        created_at = msg.get("created_at", "")
+                        try:
+                            msg_time = datetime.fromisoformat(created_at)
+                            if last_heartbeat_time is None or msg_time > last_heartbeat_time:
+                                last_heartbeat_time = msg_time
+                        except:
+                            pass
+
+        # Check if we should skip sending messages (too soon after last heartbeat)
+        skip_send_message = False
+        if last_heartbeat_time:
+            time_since_last = datetime.now() - last_heartbeat_time
+            if time_since_last < timedelta(minutes=30):
+                skip_send_message = True
+
         # Use provided prompt or default
         heartbeat_prompt = prompt or self.config.get(
             "heartbeat.prompt",
             "看了一下之前的对话，想想有没有什么想跟对方说的，或者有什么想做的事。"
         )
 
+        # Add reminder about recent messages to avoid repeating
+        if recent_sent_messages:
+            recent_info = "\n\n【重要】最近已经主动发过消息了：\n"
+            for sm in recent_sent_messages[-3:]:
+                recent_info += f"- {sm['time']} 给 {sm['session_id']}: {sm['content']}...\n"
+            recent_info += "\n⚠️ 不要再发消息了！除非：\n"
+            recent_info += "1. 有紧急重要的事情\n"
+            recent_info += "2. 用户已经回复了你的消息\n"
+            recent_info += "3. 距离上次发消息已经过了很长时间（几小时以上）\n"
+            recent_info += "\n如果只是想聊天或关心对方，等对方回复后再说。"
+            heartbeat_prompt += recent_info
+
+        # If too soon after last heartbeat message, disable send_message
+        if skip_send_message:
+            heartbeat_prompt += "\n\n【限制】刚才发过消息了，现在不要再发消息，先等对方回复。你可以做其他事情，比如用工具处理一些任务。"
+
         # Build system prompt with available sessions info
         system_prompt = await self._build_system_prompt()
 
         # Add session info to system prompt (more natural tone)
         sessions_info = ""
-        if sessions:
+        if sessions and not skip_send_message:
             sessions_info = "\n\n你的对话：\n"
             for s in sessions:
                 sessions_info += f"- {s['session_id']}\n"

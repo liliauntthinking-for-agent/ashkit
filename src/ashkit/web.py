@@ -1098,9 +1098,8 @@ async def heartbeat_scheduler(agent_id: str, interval_minutes: int, prompt: str)
 
     async def send_message_callback(session_id: str, message: str):
         """Callback to send message to a session during heartbeat."""
-        # Save user message placeholder (optional - to indicate this is a proactive message)
-        # Actually send the assistant message
-        db.add_message(session_id, "assistant", message)
+        # Mark message as heartbeat-sent
+        db.add_message(session_id, "assistant", message, metadata={"heartbeat": True})
         logger.info(f"Heartbeat sent message to session {session_id}")
 
     while True:
@@ -1216,7 +1215,7 @@ async def trigger_agent_heartbeat(agent_id: str, prompt: str | None = None):
 
     async def send_message_callback(session_id: str, message: str):
         """Callback to send message to a session during heartbeat."""
-        db.add_message(session_id, "assistant", message)
+        db.add_message(session_id, "assistant", message, metadata={"heartbeat": True})
         logger.info(f"Trigger heartbeat sent message to session {session_id}")
 
     agent = db.get_agent(agent_id)
