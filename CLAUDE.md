@@ -20,6 +20,7 @@ Ashkit is a lightweight personal AI assistant platform with:
 - `LLMClient` communicates with any OpenAI-compatible API (configured via providers)
 - Agents are stored in SQLite database and loaded on-demand into runtime cache
 - Each agent has its own workspace subdirectory for skills and memory
+- Provider config includes: `apiKey`, `apiBase` (OpenAI-compatible endpoint), and `models` list
 
 ### Three-Layer Memory System
 - **L1 (Working)**: In-memory conversation context (last 20 messages)
@@ -44,7 +45,7 @@ When streaming responses, special markers are embedded for UI rendering:
 - Database: `~/.ashkit/workspace/ashkit.db`
 - Agent workspaces: `~/.ashkit/workspace/<agent_id>/`
 - Skills: `~/.ashkit/workspace/<agent_id>/skills/` or `~/.agents/skills/` (builtin)
-- Frontend build: `src/ashkit/web/dist/` (served by FastAPI)
+- Frontend build: `src/ashkit/web/dist/` (served by FastAPI at root path)
 
 ## API Patterns
 
@@ -62,3 +63,12 @@ Streaming: POST to `/api/sessions/{id}/messages` with `stream: true` returns `te
 2. **Runtime cache**: `agents_runtime` dict in web.py caches Agent instances; invalidate on update/delete
 3. **Config merging**: User config deep-merges with defaults in Config class
 4. **Error handling**: Log errors with context, return meaningful error messages to users
+5. **Database schema evolution**: Schema migrations are handled inline in `Database._init_db()` via ALTER TABLE checks - add new columns with existence checks
+
+## Agent Features
+
+### Heartbeat System
+Agents can have scheduled "heartbeats" that trigger periodic self-reflection based on memory content:
+- Configured per-agent via `heartbeat` field (enabled, interval_minutes, prompt)
+- Managed by `start_heartbeat_scheduler()` and `stop_heartbeat_scheduler()` in web.py
+- Logs stored in `heartbeat_logs` table

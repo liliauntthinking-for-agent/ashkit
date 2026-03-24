@@ -97,6 +97,12 @@ class Database:
         if "compressed_context" not in session_columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN compressed_context TEXT")
 
+        cursor = conn.execute("PRAGMA table_info(messages)")
+        message_columns = [row[1] for row in cursor.fetchall()]
+
+        if "metadata" not in message_columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
+
         conn.commit()
         conn.close()
 

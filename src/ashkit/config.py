@@ -45,7 +45,7 @@ DEFAULT_CONFIG = {
     "heartbeat": {
         "enabled": False,
         "interval_minutes": 30,
-        "prompt": "根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。",
+        "prompt": "看了一下之前的对话，想想有没有什么想跟对方说的，或者有什么想做的事。",
     },
 }
 

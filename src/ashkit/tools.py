@@ -176,6 +176,59 @@ class MCPTool(BaseTool):
         return await call_mcp_tool(server, tool, arguments or kwargs or {})
 
 
+class SendMessageTool(BaseTool):
+    """Tool for sending messages to users during heartbeat"""
+
+    def __init__(self, send_callback=None, sessions: list[dict] | None = None):
+        super().__init__("send_message", "给对方发消息")
+        self.send_callback = send_callback
+        self.sessions = sessions or []
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "要发给谁的对话ID。" + (
+                        "可选：" + ", ".join([s['session_id'] for s in self.sessions])
+                        if self.sessions else ""
+                    )
+                },
+                "message": {
+                    "type": "string",
+                    "description": "想说什么"
+                }
+            },
+            "required": ["session_id", "message"]
+        }
+        self._sent_messages: list[dict] = []
+
+    async def execute(self, session_id: str, message: str) -> str:
+        """Execute the send message action"""
+        # Validate session exists
+        session_ids = [s['session_id'] for s in self.sessions]
+        if session_id not in session_ids:
+            available = ", ".join(session_ids) if session_ids else "没有可用的对话"
+            return f"找不到这个对话: {session_id}。可选: {available}"
+
+        result = {"session_id": session_id, "message": message}
+
+        if self.send_callback:
+            try:
+                await self.send_callback(session_id, message)
+                result["status"] = "sent"
+                self._sent_messages.append(result)
+                return f"消息已发送"
+            except Exception as e:
+                return f"发送失败: {str(e)}"
+        else:
+            # No callback, just record the message
+            self._sent_messages.append(result)
+            return f"消息准备发送: {message[:50]}..."
+
+    def get_sent_messages(self) -> list[dict]:
+        return self._sent_messages
+
+
 class SkillTool(BaseTool):
     """Tool wrapper for invoking skills"""
     def __init__(self, skill):

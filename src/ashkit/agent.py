@@ -725,54 +725,154 @@ You have a computer with access to files and can run commands. You have skills a
             return f"Tool {tool_name} not found"
         return await tool.execute(**kwargs)
 
-    async def heartbeat(self, prompt: str | None = None) -> dict:
-        """Execute heartbeat - think based on memory content.
+    async def heartbeat(self, prompt: str | None = None, sessions: list[dict] | None = None, send_callback=None) -> dict:
+        """Execute heartbeat - think based on memory content and optionally take actions.
 
         Args:
             prompt: Custom prompt for heartbeat. If None, uses default prompt.
+            sessions: List of active sessions for this agent (from database)
+            send_callback: Async callback function to send messages (session_id, message)
 
         Returns:
-            dict with 'response' and 'memory_context' keys
+            dict with 'response', 'memory_context', 'actions_taken' keys
         """
         await self.initialize()
 
-        # Get memory context
-        memory_context = ""
+        from .database import Database
+        from .tools import register_tool, SendMessageTool
+
+        db = Database(self.workspace / "ashkit.db")
+
+        # Get all sessions for this agent if not provided
+        if sessions is None:
+            sessions = db.list_sessions(self.agent_id)
+
+        # Build L1 memory context from recent messages in all sessions
+        l1_context = ""
+        session_messages = {}
+        for session in sessions[:5]:  # Limit to 5 most recent sessions
+            session_id = session["session_id"]
+            messages = db.get_latest_messages(session_id, limit=10)
+            if messages:
+                session_messages[session_id] = messages
+                l1_context += f"\n[Session: {session_id}]\n"
+                for msg in messages[-5:]:  # Last 5 messages per session
+                    role = msg["role"]
+                    content = msg["content"][:200]  # Truncate long messages
+                    l1_context += f"  {role}: {content}\n"
+
+        # Get L2 memory context
+        l2_context = ""
         l2_episodes = self.memory.l2.get_by_user(self.agent_id, limit=5)
         if l2_episodes:
-            memory_context += "Recent conversation summaries:\n"
             for ep in l2_episodes:
-                memory_context += f"- {ep.get('summary', '')}\n"
+                l2_context += f"{ep.get('summary', '')}\n"
 
+        # Get L3 memory context
+        l3_context = ""
         l3_memories = self.memory.l3.get_all(self.agent_id)
         if l3_memories:
-            memory_context += "\nLong-term memories:\n"
             for mem in l3_memories[:5]:
-                memory_context += f"- {mem.get('content', '')}\n"
+                l3_context += f"{mem.get('content', '')}\n"
+
+        # Combine all memory contexts
+        memory_context = ""
+        if l1_context:
+            memory_context += f"刚才的对话：{l1_context}\n"
+        if l2_context:
+            memory_context += f"\n之前的聊天记录：\n{l2_context}\n"
+        if l3_context:
+            memory_context += f"\n记得的事：\n{l3_context}\n"
+
+        # Register send_message tool for this heartbeat
+        send_tool = SendMessageTool(send_callback=send_callback, sessions=sessions)
+        register_tool(send_tool)
 
         # Use provided prompt or default
         heartbeat_prompt = prompt or self.config.get(
             "heartbeat.prompt",
-            "根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。"
+            "看了一下之前的对话，想想有没有什么想跟对方说的，或者有什么想做的事。"
         )
 
-        # Build messages
+        # Build system prompt with available sessions info
         system_prompt = await self._build_system_prompt()
+
+        # Add session info to system prompt (more natural tone)
+        sessions_info = ""
+        if sessions:
+            sessions_info = "\n\n你的对话：\n"
+            for s in sessions:
+                sessions_info += f"- {s['session_id']}\n"
+            sessions_info += "\n如果想给谁发消息，可以用 send_message 工具。"
+
+        # Build messages - more natural, like browsing through memories
+        memory_text = memory_context if memory_context else "还没什么对话记录。"
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"[心跳检查]\n\n当前记忆:\n{memory_context if memory_context else '暂无记忆内容'}\n\n{heartbeat_prompt}"},
+            {"role": "system", "content": system_prompt + sessions_info},
+            {"role": "user", "content": f"{memory_text}\n\n{heartbeat_prompt}"},
         ]
 
-        # Get response
+        # Process with tools (similar to process_message)
+        max_calls = self.config.get("tools.max_calls", 5)
+        final_response = ""
+        actions_taken = []
+
         try:
-            response = await self.llm.chat(messages)
-            logger.info(f"Heartbeat for {self.agent_id}: {response[:100]}...")
+            for round_num in range(max_calls):
+                response = await self.llm.chat_with_tools(messages)
+
+                if not response.get("tool_calls"):
+                    final_response = response.get("content", "")
+                    break
+
+                logger.info(f"Heartbeat tool call round {round_num + 1}/{max_calls}")
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": response.get("content", ""),
+                    "tool_calls": response["tool_calls"]
+                }
+                messages.append(assistant_message)
+
+                for tool_call in response["tool_calls"]:
+                    tool_name = tool_call["function"]["name"]
+                    try:
+                        tool_args = json.loads(tool_call["function"]["arguments"])
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    logger.info(f"Heartbeat executing tool: {tool_name} with args: {tool_args}")
+                    tool_result = await self.call_tool(tool_name, **tool_args)
+
+                    actions_taken.append({
+                        "tool": tool_name,
+                        "args": tool_args,
+                        "result": str(tool_result)[:500]
+                    })
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call["id"],
+                        "content": str(tool_result)
+                    })
+
+            # Get final response if we had tool calls
+            if actions_taken and not final_response:
+                response = await self.llm.chat(messages)
+                final_response = response
+
+            logger.info(f"Heartbeat for {self.agent_id}: {final_response[:100] if final_response else 'No response'}...")
+
+            # Collect sent messages from send tool
+            sent_messages = send_tool.get_sent_messages()
 
             return {
                 "agent_id": self.agent_id,
-                "response": response,
+                "response": final_response,
                 "memory_context": memory_context,
                 "prompt": heartbeat_prompt,
+                "actions_taken": actions_taken,
+                "sent_messages": sent_messages,
             }
         except Exception as e:
             logger.error(f"Heartbeat failed for {self.agent_id}: {e}")
@@ -781,4 +881,6 @@ You have a computer with access to files and can run commands. You have skills a
                 "error": str(e),
                 "memory_context": memory_context,
                 "prompt": heartbeat_prompt,
+                "actions_taken": actions_taken,
+                "sent_messages": send_tool.get_sent_messages(),
             }

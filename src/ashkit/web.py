@@ -168,7 +168,7 @@ class SettingsUpdate(BaseModel):
 class HeartbeatConfig(BaseModel):
     enabled: bool = False
     interval_minutes: int = 30
-    prompt: str = "根据你的记忆内容，思考是否有需要主动做的事情。如果有，说明是什么以及为什么；如果没有，说明当前状态良好。"
+    prompt: str = "看了一下之前的对话，想想有没有什么想跟对方说的，或者有什么想做的事。"
 
 
 agents_runtime: dict[str, Any] = {}
@@ -1089,6 +1089,14 @@ logger = logging.getLogger(__name__)
 
 async def heartbeat_scheduler(agent_id: str, interval_minutes: int, prompt: str):
     """Background task that runs heartbeat periodically for an agent."""
+
+    async def send_message_callback(session_id: str, message: str):
+        """Callback to send message to a session during heartbeat."""
+        # Save user message placeholder (optional - to indicate this is a proactive message)
+        # Actually send the assistant message
+        db.add_message(session_id, "assistant", message)
+        logger.info(f"Heartbeat sent message to session {session_id}")
+
     while True:
         try:
             sleep_minutes = interval_minutes * random.uniform(0.8, 1.2)
@@ -1105,13 +1113,30 @@ async def heartbeat_scheduler(agent_id: str, interval_minutes: int, prompt: str)
                 logger.info(f"Heartbeat disabled for {agent_id}, stopping")
                 break
 
-            # Run heartbeat
-            agent = await get_agent_runtime(agent_id)
-            result = await agent.heartbeat(prompt)
+            # Get agent's active sessions
+            sessions = db.list_sessions(agent_id)
 
-            # Log the heartbeat
-            db.add_heartbeat_log(agent_id, prompt, result.get("response", ""))
-            logger.info(f"Heartbeat completed for {agent_id}")
+            # Run heartbeat with sessions and send callback
+            agent = await get_agent_runtime(agent_id)
+            result = await agent.heartbeat(
+                prompt=prompt,
+                sessions=sessions,
+                send_callback=send_message_callback
+            )
+
+            # Log the heartbeat with detailed info
+            log_response = result.get("response", "")
+            actions = result.get("actions_taken", [])
+            sent = result.get("sent_messages", [])
+
+            log_entry = log_response
+            if actions:
+                log_entry += f"\nActions: {len(actions)} tools executed"
+            if sent:
+                log_entry += f"\nMessages sent: {len(sent)}"
+
+            db.add_heartbeat_log(agent_id, prompt, log_entry)
+            logger.info(f"Heartbeat completed for {agent_id}: {len(actions)} actions, {len(sent)} messages sent")
 
         except asyncio.CancelledError:
             logger.info(f"Heartbeat task cancelled for {agent_id}")
@@ -1182,19 +1207,42 @@ async def update_agent_heartbeat(agent_id: str, heartbeat: HeartbeatConfig):
 @app.post("/api/agents/{agent_id}/heartbeat/trigger")
 async def trigger_agent_heartbeat(agent_id: str, prompt: str | None = None):
     """Manually trigger a heartbeat for an agent."""
+
+    async def send_message_callback(session_id: str, message: str):
+        """Callback to send message to a session during heartbeat."""
+        db.add_message(session_id, "assistant", message)
+        logger.info(f"Trigger heartbeat sent message to session {session_id}")
+
     agent = db.get_agent(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
     try:
-        agent_runtime = await get_agent_runtime(agent_id)
-        result = await agent_runtime.heartbeat(prompt)
+        # Get agent's sessions
+        sessions = db.list_sessions(agent_id)
 
-        # Log the heartbeat
+        agent_runtime = await get_agent_runtime(agent_id)
+        result = await agent_runtime.heartbeat(
+            prompt=prompt,
+            sessions=sessions,
+            send_callback=send_message_callback
+        )
+
+        # Log the heartbeat with detailed info
+        log_response = result.get("response", "")
+        actions = result.get("actions_taken", [])
+        sent = result.get("sent_messages", [])
+
+        log_entry = log_response
+        if actions:
+            log_entry += f"\nActions: {len(actions)} tools executed"
+        if sent:
+            log_entry += f"\nMessages sent: {len(sent)}"
+
         db.add_heartbeat_log(
             agent_id,
             prompt or result.get("prompt", ""),
-            result.get("response", "")
+            log_entry
         )
 
         return result
