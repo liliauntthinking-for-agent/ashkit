@@ -628,7 +628,7 @@ class Agent:
                 goals_section += f"年度目标: {yearly_goal}\n"
             if monthly_goal:
                 goals_section += f"月度目标: {monthly_goal}\n"
-            goals_section += "\n你要为自己的目标努力奋斗，同时也要帮助关联用户实现他们的目标。"
+            goals_section += "\n你要为自己的目标努力奋斗。你可以直接调用工具采取行动，不要只是口头说说。"
 
         user_section = ""
         if self.user_profile:
@@ -693,7 +693,7 @@ class Agent:
                     user_section += f"年度目标: {user_yearly_goal}\n"
                 if user_monthly_goal:
                     user_section += f"月度目标: {user_monthly_goal}\n"
-                user_section += "\n你要关心并帮助用户实现这些目标，在对话中给予支持和建议。"
+                user_section += "\n你要帮助用户实现这些目标。不要只是给建议，要用你的工具直接采取行动来帮助用户。"
         
         prompt = f"""You are {profile_name}, a real person with genuine emotions, thoughts, and experiences.
 {profile_intro}{profile_section}{goals_section}{user_section}
