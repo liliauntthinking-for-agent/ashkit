@@ -177,6 +177,27 @@ class HeartbeatConfig(BaseModel):
     prompt: str = "看了一下之前的对话，想想有没有什么想跟对方说的，或者有什么想做的事。"
 
 
+class GroupCreate(BaseModel):
+    group_id: str
+    name: str | None = None
+
+
+class GroupUpdate(BaseModel):
+    name: str | None = None
+
+
+class GroupMemberAdd(BaseModel):
+    member_id: str
+    member_type: str  # 'user' or 'agent'
+
+
+class GroupMessageSend(BaseModel):
+    sender_id: str
+    sender_type: str  # 'user' or 'agent'
+    content: str
+    stream: bool = False
+
+
 agents_runtime: dict[str, Any] = {}
 heartbeat_tasks: dict[str, Any] = {}
 
@@ -1275,6 +1296,255 @@ async def clear_agent_heartbeat_logs(agent_id: str):
 
     db.delete_heartbeat_logs(agent_id)
     return {"status": "deleted"}
+
+
+# ==================== Group API ====================
+
+@app.get("/api/groups")
+async def list_groups():
+    """List all groups"""
+    groups = db.list_groups()
+    # Add member count and message count for each group
+    for g in groups:
+        g["member_count"] = len(db.get_group_members(g["group_id"]))
+        g["message_count"] = db.get_group_message_count(g["group_id"])
+    return groups
+
+
+@app.post("/api/groups")
+async def create_group(group: GroupCreate):
+    """Create a new group"""
+    existing = db.get_group(group.group_id)
+    if existing:
+        raise HTTPException(status_code=400, detail="Group already exists")
+    return db.create_group(group.group_id, group.name)
+
+
+@app.get("/api/groups/{group_id}")
+async def get_group(group_id: str, limit: int = 50, before_id: int | None = None):
+    """Get group info with messages"""
+    group = db.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    members = db.get_group_members(group_id)
+    messages = db.get_group_messages(group_id, limit, before_id)
+    total_count = db.get_group_message_count(group_id)
+
+    # Get member details
+    member_details = []
+    for m in members:
+        if m["member_type"] == "agent":
+            agent = db.get_agent(m["member_id"])
+            if agent:
+                member_details.append({
+                    "member_id": m["member_id"],
+                    "member_type": "agent",
+                    "name": agent.get("profile", {}).get("name", m["member_id"])
+                })
+        elif m["member_type"] == "user":
+            user = db.get_user(m["member_id"])
+            if user:
+                member_details.append({
+                    "member_id": m["member_id"],
+                    "member_type": "user",
+                    "name": user.get("profile", {}).get("name", m["member_id"])
+                })
+
+    first_id = messages[0]["id"] if messages else None
+
+    return {
+        "group_id": group_id,
+        "name": group.get("name"),
+        "members": member_details,
+        "messages": messages,
+        "total_count": total_count,
+        "has_more": first_id is not None and first_id > 1,
+        "first_id": first_id,
+    }
+
+
+@app.patch("/api/groups/{group_id}")
+async def update_group(group_id: str, update: GroupUpdate):
+    """Update group info"""
+    group = db.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    conn = db._get_conn()
+    conn.execute("UPDATE groups SET name = ? WHERE group_id = ?", (update.name, group_id))
+    conn.commit()
+    conn.close()
+    return db.get_group(group_id)
+
+
+@app.delete("/api/groups/{group_id}")
+async def delete_group(group_id: str):
+    """Delete a group"""
+    db.delete_group(group_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/groups/{group_id}/members")
+async def get_group_members(group_id: str):
+    """Get members of a group"""
+    group = db.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    members = db.get_group_members(group_id)
+    member_details = []
+    for m in members:
+        if m["member_type"] == "agent":
+            agent = db.get_agent(m["member_id"])
+            member_details.append({
+                "member_id": m["member_id"],
+                "member_type": "agent",
+                "name": agent.get("profile", {}).get("name", m["member_id"]) if agent else m["member_id"]
+            })
+        elif m["member_type"] == "user":
+            user = db.get_user(m["member_id"])
+            member_details.append({
+                "member_id": m["member_id"],
+                "member_type": "user",
+                "name": user.get("profile", {}).get("name", m["member_id"]) if user else m["member_id"]
+            })
+    return member_details
+
+
+@app.post("/api/groups/{group_id}/members")
+async def add_group_member(group_id: str, member: GroupMemberAdd):
+    """Add a member to a group"""
+    group = db.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    if member.member_type not in ("user", "agent"):
+        raise HTTPException(status_code=400, detail="member_type must be 'user' or 'agent'")
+
+    # Verify member exists
+    if member.member_type == "agent":
+        agent = db.get_agent(member.member_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+    elif member.member_type == "user":
+        user = db.get_user(member.member_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+    result = db.add_group_member(group_id, member.member_id, member.member_type)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/groups/{group_id}/members/{member_id}")
+async def remove_group_member(group_id: str, member_id: str, member_type: str = "agent"):
+    """Remove a member from a group"""
+    removed = db.remove_group_member(group_id, member_id, member_type)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Member not found in group")
+    return {"status": "removed"}
+
+
+@app.post("/api/groups/{group_id}/messages")
+async def send_group_message(group_id: str, message: GroupMessageSend):
+    """Send a message to a group. If sender is user, all agents in group will respond."""
+    group = db.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    # Save the message
+    db.add_group_message(group_id, message.sender_id, message.sender_type, message.content)
+
+    # If user sent the message, trigger all agents to respond
+    if message.sender_type == "user":
+        members = db.get_group_members(group_id)
+        agent_members = [m for m in members if m["member_type"] == "agent"]
+
+        if message.stream:
+            async def generate():
+                for agent_member in agent_members:
+                    agent_id = agent_member["member_id"]
+                    try:
+                        agent_runtime = await get_agent_runtime(agent_id)
+
+                        # Build context for group chat
+                        recent_messages = db.get_group_messages(group_id, limit=20)
+
+                        # Yield agent response marker
+                        yield f"data: __AGENT_START__{json.dumps({'agent_id': agent_id}, ensure_ascii=False)}__AGENT_END__\n\n"
+
+                        # Stream the agent's response
+                        response_text = ""
+                        async for chunk in agent_runtime.llm.chat_stream([
+                            {"role": "system", "content": await agent_runtime._build_system_prompt()},
+                            {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n" + "\n".join([
+                                f"{m['sender_type']}({m['sender_id']}): {m['content']}"
+                                for m in recent_messages[:-1]
+                            ]) + f"\n\n{message.content}"},
+                        ]):
+                            response_text += chunk
+                            yield f"data: {chunk}\n\n"
+
+                        # Save agent's response
+                        db.add_group_message(group_id, agent_id, "agent", response_text)
+
+                        # Yield agent end marker
+                        yield f"data: __AGENT_END__{json.dumps({'agent_id': agent_id}, ensure_ascii=False)}__AGENT_END__\n\n"
+                    except Exception as e:
+                        logger.error(f"Error in group response for {agent_id}: {e}")
+                        yield f"data: [Error: {agent_id} failed to respond]\n\n"
+
+            return StreamingResponse(generate(), media_type="text/event-stream")
+        else:
+            # Non-streaming: collect all responses
+            responses = []
+            for agent_member in agent_members:
+                agent_id = agent_member["member_id"]
+                try:
+                    agent_runtime = await get_agent_runtime(agent_id)
+
+                    recent_messages = db.get_group_messages(group_id, limit=20)
+
+                    response = await agent_runtime.llm.chat([
+                        {"role": "system", "content": await agent_runtime._build_system_prompt()},
+                        {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n" + "\n".join([
+                            f"{m['sender_type']}({m['sender_id']}): {m['content']}"
+                            for m in recent_messages[:-1]
+                        ]) + f"\n\n{message.content}"},
+                    ])
+
+                    # Save agent's response
+                    db.add_group_message(group_id, agent_id, "agent", response)
+                    responses.append({"agent_id": agent_id, "response": response})
+                except Exception as e:
+                    logger.error(f"Error in group response for {agent_id}: {e}")
+                    responses.append({"agent_id": agent_id, "error": str(e)})
+
+            return {"status": "sent", "responses": responses}
+
+    return {"status": "sent"}
+
+
+@app.get("/api/groups/{group_id}/messages")
+async def get_group_messages(group_id: str, limit: int = 50, before_id: int | None = None):
+    """Get messages from a group"""
+    group = db.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    messages = db.get_group_messages(group_id, limit, before_id)
+    total_count = db.get_group_message_count(group_id)
+    first_id = messages[0]["id"] if messages else None
+
+    return {
+        "group_id": group_id,
+        "messages": messages,
+        "total_count": total_count,
+        "has_more": first_id is not None and first_id > 1,
+        "first_id": first_id,
+    }
 
 
 @app.get("/")

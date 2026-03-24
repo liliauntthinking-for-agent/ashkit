@@ -542,3 +542,179 @@ export async function uploadAvatar(type: 'agent' | 'user', id: string, file: Fil
 export async function deleteAvatar(type: 'agent' | 'user', id: string): Promise<void> {
   await fetch(`${API_BASE}/api/avatars/${type}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+// ==================== Group APIs ====================
+
+export interface Group {
+  group_id: string;
+  name: string | null;
+  member_count?: number;
+  message_count?: number;
+  created_at: string;
+}
+
+export interface GroupMember {
+  member_id: string;
+  member_type: 'user' | 'agent';
+  name: string;
+}
+
+export interface GroupMessage {
+  id: number;
+  group_id: string;
+  sender_id: string;
+  sender_type: 'user' | 'agent';
+  content: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
+export async function getGroups(): Promise<Group[]> {
+  const res = await fetch(`${API_BASE}/api/groups`);
+  return res.json();
+}
+
+export async function createGroup(groupId: string, name?: string): Promise<Group> {
+  const res = await fetch(`${API_BASE}/api/groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, name }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to create group');
+  }
+  return res.json();
+}
+
+export async function getGroup(groupId: string, limit = 50, beforeId?: number): Promise<{
+  group_id: string;
+  name: string | null;
+  members: GroupMember[];
+  messages: GroupMessage[];
+  total_count: number;
+  has_more: boolean;
+  first_id: number | null;
+}> {
+  const url = beforeId
+    ? `${API_BASE}/api/groups/${groupId}?limit=${limit}&before_id=${beforeId}`
+    : `${API_BASE}/api/groups/${groupId}?limit=${limit}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error('Group not found');
+  }
+  return res.json();
+}
+
+export async function updateGroup(groupId: string, name: string): Promise<Group> {
+  const res = await fetch(`${API_BASE}/api/groups/${groupId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return res.json();
+}
+
+export async function deleteGroup(groupId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/groups/${groupId}`, { method: 'DELETE' });
+}
+
+export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
+  const res = await fetch(`${API_BASE}/api/groups/${groupId}/members`);
+  return res.json();
+}
+
+export async function addGroupMember(groupId: string, memberId: string, memberType: 'user' | 'agent'): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/groups/${groupId}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ member_id: memberId, member_type: memberType }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to add member');
+  }
+}
+
+export async function removeGroupMember(groupId: string, memberId: string, memberType: 'user' | 'agent'): Promise<void> {
+  await fetch(`${API_BASE}/api/groups/${groupId}/members/${memberId}?member_type=${memberType}`, { method: 'DELETE' });
+}
+
+export async function sendGroupMessage(
+  groupId: string,
+  senderId: string,
+  senderType: 'user' | 'agent',
+  content: string
+): Promise<{ status: string; responses?: { agent_id: string; response: string }[] }> {
+  const res = await fetch(`${API_BASE}/api/groups/${groupId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender_id: senderId, sender_type: senderType, content, stream: false }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to send message');
+  }
+  return res.json();
+}
+
+export async function* streamGroupMessage(
+  groupId: string,
+  senderId: string,
+  content: string
+): AsyncGenerator<{ type: 'agent_start' | 'agent_end' | 'content'; agent_id?: string; content?: string }> {
+  const res = await fetch(`${API_BASE}/api/groups/${groupId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender_id: senderId, sender_type: 'user', content, stream: true }),
+  });
+
+  const reader = res.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+
+          if (data.startsWith('__AGENT_START__')) {
+            const endIdx = data.indexOf('__AGENT_END__');
+            if (endIdx !== -1) {
+              const jsonStr = data.slice(15, endIdx);
+              try {
+                const parsed = JSON.parse(jsonStr);
+                yield { type: 'agent_start', agent_id: parsed.agent_id };
+              } catch {}
+            }
+          } else if (data.startsWith('__AGENT_END__')) {
+            const endIdx = data.indexOf('__AGENT_END__', 12);
+            if (endIdx !== -1) {
+              const jsonStr = data.slice(12, endIdx);
+              try {
+                const parsed = JSON.parse(jsonStr);
+                yield { type: 'agent_end', agent_id: parsed.agent_id };
+              } catch {}
+            }
+          } else if (data) {
+            yield { type: 'content', content: data };
+          }
+        }
+      }
+    }
+  } finally {
+    reader.cancel();
+  }
+}

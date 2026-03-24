@@ -5,15 +5,17 @@ import { Agents } from './components/Agents';
 import { Users } from './components/Users';
 import { Skills } from './components/Skills';
 import { Chat } from './components/Chat';
+import { Groups } from './components/Groups';
 import { MemoryPanel } from './components/Memory';
 import { Settings } from './components/Settings';
-import { ChatCircle, Cube, Brain, PlugsConnected, Gear, User, Lightning } from '@phosphor-icons/react';
+import { ChatCircle, Cube, Brain, PlugsConnected, Gear, User, Lightning, UsersThree } from '@phosphor-icons/react';
 import { AppProvider, useApp } from './AppContext';
 
-type Tab = 'chat' | 'providers' | 'agents' | 'users' | 'skills' | 'memory' | 'settings';
+type Tab = 'chat' | 'groups' | 'providers' | 'agents' | 'users' | 'skills' | 'memory' | 'settings';
 
 const navItems: { id: Tab; label: string; icon: Icon }[] = [
   { id: 'chat', label: '对话', icon: ChatCircle },
+  { id: 'groups', label: '群聊', icon: UsersThree },
   { id: 'providers', label: '提供商', icon: PlugsConnected },
   { id: 'agents', label: 'Agent', icon: Cube },
   { id: 'users', label: '用户', icon: User },
@@ -71,6 +73,7 @@ function AppContent() {
       <main className="flex-1 w-full">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {activeTab === 'chat' && <Chat />}
+          {activeTab === 'groups' && <Groups />}
           {activeTab === 'providers' && <Providers />}
           {activeTab === 'agents' && <Agents />}
           {activeTab === 'users' && <Users />}

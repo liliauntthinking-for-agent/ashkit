@@ -69,6 +69,37 @@ class Database:
             );
 
             CREATE INDEX IF NOT EXISTS idx_heartbeat_agent ON heartbeat_logs(agent_id);
+
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT UNIQUE NOT NULL,
+                name TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS group_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                member_id TEXT NOT NULL,
+                member_type TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (group_id) REFERENCES groups(group_id),
+                UNIQUE(group_id, member_id, member_type)
+            );
+
+            CREATE TABLE IF NOT EXISTS group_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                sender_id TEXT NOT NULL,
+                sender_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (group_id) REFERENCES groups(group_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
+            CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id);
         """)
         conn.commit()
         
@@ -431,3 +462,140 @@ class Database:
         conn.commit()
         conn.close()
         return affected > 0
+
+    # ==================== Group Methods ====================
+
+    def create_group(self, group_id: str, name: str | None = None) -> dict:
+        """Create a new group"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        conn.execute(
+            "INSERT INTO groups (group_id, name, created_at) VALUES (?, ?, ?)",
+            (group_id, name, now),
+        )
+        conn.commit()
+        conn.close()
+        return {"group_id": group_id, "name": name, "created_at": now}
+
+    def get_group(self, group_id: str) -> dict | None:
+        """Get group info"""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM groups WHERE group_id = ?", (group_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def list_groups(self) -> list[dict]:
+        """List all groups"""
+        conn = self._get_conn()
+        rows = conn.execute("SELECT * FROM groups ORDER BY created_at DESC").fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def delete_group(self, group_id: str) -> bool:
+        """Delete a group and all its members and messages"""
+        conn = self._get_conn()
+        conn.execute("DELETE FROM group_messages WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM groups WHERE group_id = ?", (group_id,))
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def add_group_member(self, group_id: str, member_id: str, member_type: str) -> dict:
+        """Add a member to a group. member_type: 'user' or 'agent'"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        try:
+            conn.execute(
+                "INSERT INTO group_members (group_id, member_id, member_type, created_at) VALUES (?, ?, ?, ?)",
+                (group_id, member_id, member_type, now),
+            )
+            conn.commit()
+            conn.close()
+            return {"group_id": group_id, "member_id": member_id, "member_type": member_type}
+        except sqlite3.IntegrityError:
+            conn.close()
+            return {"error": "Member already in group"}
+
+    def remove_group_member(self, group_id: str, member_id: str, member_type: str) -> bool:
+        """Remove a member from a group"""
+        conn = self._get_conn()
+        conn.execute(
+            "DELETE FROM group_members WHERE group_id = ? AND member_id = ? AND member_type = ?",
+            (group_id, member_id, member_type),
+        )
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def get_group_members(self, group_id: str) -> list[dict]:
+        """Get all members of a group"""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT member_id, member_type FROM group_members WHERE group_id = ?",
+            (group_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def get_groups_for_member(self, member_id: str, member_type: str) -> list[dict]:
+        """Get all groups a member belongs to"""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT g.* FROM groups g
+               JOIN group_members gm ON g.group_id = gm.group_id
+               WHERE gm.member_id = ? AND gm.member_type = ?""",
+            (member_id, member_type),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def add_group_message(self, group_id: str, sender_id: str, sender_type: str, content: str, metadata: dict | None = None) -> dict:
+        """Add a message to a group"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        metadata_json = json.dumps(metadata, ensure_ascii=False) if metadata else None
+        cursor = conn.execute(
+            "INSERT INTO group_messages (group_id, sender_id, sender_type, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (group_id, sender_id, sender_type, content, metadata_json, now),
+        )
+        msg_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return {"id": msg_id, "group_id": group_id, "sender_id": sender_id, "sender_type": sender_type, "content": content, "metadata": metadata, "created_at": now}
+
+    def get_group_messages(self, group_id: str, limit: int = 50, before_id: int | None = None) -> list[dict]:
+        """Get messages from a group"""
+        conn = self._get_conn()
+        if before_id:
+            rows = conn.execute(
+                """SELECT * FROM group_messages WHERE group_id = ? AND id < ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (group_id, before_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM group_messages WHERE group_id = ? ORDER BY created_at DESC LIMIT ?",
+                (group_id, limit),
+            ).fetchall()
+        conn.close()
+
+        results = []
+        for row in reversed(list(rows)):
+            r = dict(row)
+            if r.get("metadata"):
+                r["metadata"] = json.loads(r["metadata"])
+            results.append(r)
+        return results
+
+    def get_group_message_count(self, group_id: str) -> int:
+        """Get message count for a group"""
+        conn = self._get_conn()
+        cursor = conn.execute("SELECT COUNT(*) FROM group_messages WHERE group_id = ?", (group_id,))
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
