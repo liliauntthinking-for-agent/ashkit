@@ -1,6 +1,7 @@
 import json
 import random
 import tiktoken
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
@@ -1296,6 +1297,193 @@ async def clear_agent_heartbeat_logs(agent_id: str):
 
     db.delete_heartbeat_logs(agent_id)
     return {"status": "deleted"}
+
+
+@app.get("/api/export")
+async def export_data():
+    """Export all agents, users, and providers as JSON."""
+    agents = db.list_agents()
+    users = db.list_users()
+    providers = config.get("providers", {})
+    
+    export_data = {
+        "version": "1.0",
+        "exported_at": datetime.now().isoformat(),
+        "providers": providers,
+        "agents": [{
+            "agent_id": a["agent_id"],
+            "provider": a["provider"],
+            "model": a["model"],
+            "profile": a.get("profile"),
+            "user_id": a.get("user_id"),
+            "relation": a.get("relation"),
+            "mcp_servers": a.get("mcp_servers"),
+            "heartbeat": a.get("heartbeat"),
+        } for a in agents],
+        "users": [{
+            "user_id": u["user_id"],
+            "profile": u.get("profile"),
+        } for u in users],
+    }
+    
+    return export_data
+
+
+class ImportPreviewRequest(BaseModel):
+    data: dict
+
+
+class ImportExecuteRequest(BaseModel):
+    data: dict
+    providers: list[str] = []
+    agents: list[str] = []
+    users: list[str] = []
+    overwrite: bool = False
+
+
+@app.post("/api/import/preview")
+async def import_preview(request: ImportPreviewRequest):
+    """Preview import data and check conflicts."""
+    data = request.data
+    
+    if "providers" not in data and "agents" not in data and "users" not in data:
+        raise HTTPException(status_code=400, detail="Invalid export file format")
+    
+    existing_providers = config.get("providers", {})
+    existing_agents = {a["agent_id"] for a in db.list_agents()}
+    existing_users = {u["user_id"] for u in db.list_users()}
+    
+    preview = {
+        "providers": [],
+        "agents": [],
+        "users": [],
+    }
+    
+    for name, cfg in data.get("providers", {}).items():
+        preview["providers"].append({
+            "name": name,
+            "base_url": cfg.get("base_url", ""),
+            "model_count": len(cfg.get("models", [])),
+            "exists": name in existing_providers,
+        })
+    
+    for a in data.get("agents", []):
+        agent_id = a.get("agent_id")
+        if agent_id:
+            profile = a.get("profile") or {}
+            preview["agents"].append({
+                "agent_id": agent_id,
+                "provider": a.get("provider", ""),
+                "model": a.get("model", ""),
+                "name": profile.get("name", ""),
+                "exists": agent_id in existing_agents,
+            })
+    
+    for u in data.get("users", []):
+        user_id = u.get("user_id")
+        if user_id:
+            profile = u.get("profile") or {}
+            preview["users"].append({
+                "user_id": user_id,
+                "name": profile.get("name", ""),
+                "exists": user_id in existing_users,
+            })
+    
+    return preview
+
+
+@app.post("/api/import/execute")
+async def import_execute(request: ImportExecuteRequest):
+    """Execute import with selected items."""
+    data = request.data
+    selected_providers = set(request.providers)
+    selected_agents = set(request.agents)
+    selected_users = set(request.users)
+    overwrite = request.overwrite
+    
+    result = {"providers": 0, "agents": 0, "users": 0, "skipped": 0}
+    
+    existing_providers = config.get("providers", {})
+    
+    for name, cfg in data.get("providers", {}).items():
+        if name not in selected_providers:
+            continue
+        
+        if name in existing_providers and not overwrite:
+            result["skipped"] += 1
+            continue
+        
+        existing_providers[name] = cfg
+        result["providers"] += 1
+    
+    if result["providers"] > 0:
+        config.set("providers", existing_providers)
+    
+    for user_data in data.get("users", []):
+        user_id = user_data.get("user_id")
+        if not user_id or user_id not in selected_users:
+            continue
+        
+        existing = db.get_user(user_id)
+        if existing and not overwrite:
+            result["skipped"] += 1
+            continue
+        
+        profile = user_data.get("profile")
+        if existing:
+            db.delete_user(user_id)
+        db.create_user(user_id, profile)
+        result["users"] += 1
+    
+    providers = config.get("providers", {})
+    
+    for agent_data in data.get("agents", []):
+        agent_id = agent_data.get("agent_id")
+        provider = agent_data.get("provider")
+        model = agent_data.get("model")
+        
+        if not agent_id or agent_id not in selected_agents:
+            continue
+        
+        if not provider or not model:
+            result["skipped"] += 1
+            continue
+        
+        existing = db.get_agent(agent_id)
+        if existing and not overwrite:
+            result["skipped"] += 1
+            continue
+        
+        if provider not in providers:
+            result["skipped"] += 1
+            continue
+        
+        profile = agent_data.get("profile")
+        user_id = agent_data.get("user_id")
+        relation = agent_data.get("relation")
+        mcp_servers = agent_data.get("mcp_servers")
+        heartbeat = agent_data.get("heartbeat")
+        
+        if existing:
+            db.delete_agent(agent_id)
+        
+        db.create_agent(agent_id, provider, model, profile, user_id, relation)
+        
+        if mcp_servers:
+            conn = db._get_conn()
+            conn.execute(
+                "UPDATE agents SET mcp_servers = ? WHERE agent_id = ?",
+                (json.dumps(mcp_servers, ensure_ascii=False), agent_id),
+            )
+            conn.commit()
+            conn.close()
+        
+        if heartbeat:
+            db.update_agent_heartbeat(agent_id, heartbeat)
+        
+        result["agents"] += 1
+    
+    return result
 
 
 # ==================== Group API ====================

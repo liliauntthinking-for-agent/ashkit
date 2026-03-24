@@ -543,6 +543,57 @@ export async function deleteAvatar(type: 'agent' | 'user', id: string): Promise<
   await fetch(`${API_BASE}/api/avatars/${type}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export interface ExportData {
+  version: string;
+  exported_at: string;
+  providers: Record<string, { base_url?: string; models?: string[] }>;
+  agents: Agent[];
+  users: User[];
+}
+
+export async function exportData(): Promise<ExportData> {
+  const res = await fetch(`${API_BASE}/api/export`);
+  return res.json();
+}
+
+export interface ImportPreview {
+  providers: { name: string; base_url: string; model_count: number; exists: boolean }[];
+  agents: { agent_id: string; provider: string; model: string; name: string; exists: boolean }[];
+  users: { user_id: string; name: string; exists: boolean }[];
+}
+
+export async function importPreview(data: Record<string, unknown>): Promise<ImportPreview> {
+  const res = await fetch(`${API_BASE}/api/import/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to preview import data');
+  }
+  return res.json();
+}
+
+export async function importExecute(
+  data: Record<string, unknown>,
+  providers: string[],
+  agents: string[],
+  users: string[],
+  overwrite: boolean
+): Promise<{ providers: number; agents: number; users: number; skipped: number }> {
+  const res = await fetch(`${API_BASE}/api/import/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data, providers, agents, users, overwrite }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to import data');
+  }
+  return res.json();
+}
+
 // ==================== Group APIs ====================
 
 export interface Group {
