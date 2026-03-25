@@ -527,6 +527,21 @@ export function Chat() {
     }
   };
 
+  const handleDeleteAllSessions = async () => {
+    if (!confirm('确定清空所有会话? 此操作不可恢复。')) return;
+
+    try {
+      await api.deleteAllSessions();
+      loadSessions();
+      setSelectedSession(null);
+      setMessages([]);
+      messagesMapRef.current.clear();
+      showToast('已清空所有会话');
+    } catch (e: any) {
+      showToast('清空失败: ' + e.message, 'error');
+    }
+  };
+
   const handleClearMessages = async () => {
     if (!selectedSession) return;
     if (!confirm('确定清空当前对话? 这将删除所有消息但保留会话。')) return;
@@ -752,10 +767,18 @@ export function Chat() {
         </motion.button>
         
         <div className="flex-1 bg-white rounded-2xl border border-[var(--color-border)] overflow-hidden flex flex-col">
-          <div className="p-3 border-b border-[var(--color-border)] flex-shrink-0">
+          <div className="p-3 border-b border-[var(--color-border)] flex-shrink-0 flex items-center justify-between">
             <h3 className="text-xs font-semibold text-[var(--color-accent-muted)] uppercase tracking-wider">
               会话历史
             </h3>
+            {sessions.length > 0 && (
+              <button
+                onClick={handleDeleteAllSessions}
+                className="text-xs text-[var(--color-accent-muted)] hover:text-red-500 transition-colors"
+              >
+                清空
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {sessions.length === 0 ? (

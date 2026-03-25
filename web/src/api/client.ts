@@ -265,6 +265,14 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
+export async function deleteAllSessions(agentId?: string): Promise<{ status: string; count: number }> {
+  const url = agentId 
+    ? `${API_BASE}/api/sessions?agent_id=${encodeURIComponent(agentId)}`
+    : `${API_BASE}/api/sessions`;
+  const res = await fetch(url, { method: 'DELETE' });
+  return res.json();
+}
+
 export async function clearSessionMessages(sessionId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`, { method: 'DELETE' });
   if (!res.ok) {

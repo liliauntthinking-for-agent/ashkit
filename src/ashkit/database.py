@@ -360,6 +360,19 @@ class Database:
         conn.close()
         return affected > 0
 
+    def delete_all_sessions(self, agent_id: str | None = None) -> int:
+        conn = self._get_conn()
+        if agent_id:
+            conn.execute("DELETE FROM messages WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id = ?)", (agent_id,))
+            conn.execute("DELETE FROM sessions WHERE agent_id = ?", (agent_id,))
+        else:
+            conn.execute("DELETE FROM messages")
+            conn.execute("DELETE FROM sessions")
+        affected = conn.total_changes
+        conn.commit()
+        conn.close()
+        return affected
+
     def create_user(self, user_id: str, profile: dict | None = None) -> dict:
         conn = self._get_conn()
         now = datetime.now().isoformat()

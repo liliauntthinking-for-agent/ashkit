@@ -768,6 +768,12 @@ async def list_sessions(agent_id: str | None = None):
     return result
 
 
+@app.delete("/api/sessions")
+async def delete_all_sessions(agent_id: str | None = None):
+    count = db.delete_all_sessions(agent_id)
+    return {"status": "deleted", "count": count}
+
+
 @app.post("/api/sessions")
 async def create_session(session: SessionCreate):
     if not db.get_agent(session.agent_id):
