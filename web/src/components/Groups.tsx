@@ -207,7 +207,28 @@ export function Groups() {
 
     try {
       await api.addGroupMember(selectedGroup, memberId, memberType);
-      await loadGroupData(selectedGroup);
+      
+      // Update members list
+      const data = await api.getGroup(selectedGroup, 50);
+      const memberInfo: GroupMemberInfo[] = data.members.map(m => {
+        if (m.member_type === 'user') {
+          return {
+            id: m.member_id,
+            type: 'user' as const,
+            name: m.name || m.member_id,
+            avatar: undefined
+          };
+        } else {
+          return {
+            id: m.member_id,
+            type: 'agent' as const,
+            name: m.name || m.member_id,
+            avatar: undefined
+          };
+        }
+      });
+      
+      setMembers(memberInfo);
       showToast('已添加成员');
     } catch (e: any) {
       showToast('添加失败: ' + e.message, 'error');
@@ -219,7 +240,7 @@ export function Groups() {
 
     try {
       await api.removeGroupMember(selectedGroup, memberId, memberType);
-      await loadGroupData(selectedGroup);
+      setMembers(prev => prev.filter(m => !(m.id === memberId && m.type === memberType)));
       showToast('已移除成员');
     } catch (e: any) {
       showToast('移除失败: ' + e.message, 'error');

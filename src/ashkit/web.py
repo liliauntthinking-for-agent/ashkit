@@ -1627,14 +1627,21 @@ async def add_group_member(group_id: str, member: GroupMemberAdd):
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
 
-    # When adding an agent, create a hidden system message and notify existing agents
+    # When adding an agent, create a hidden system message and notify existing agents (background task)
     if member.member_type == "agent":
-        # Get existing members before this new one
-        existing_members = db.get_group_members(group_id)
-        existing_agents = [m for m in existing_members if m["member_type"] == "agent" and m["member_id"] != member.member_id]
+        import asyncio
+        asyncio.create_task(_notify_group_members(group_id, member.member_id, agent, group.get("name", group_id)))
 
-        # Build the hidden system message with agent info
-        agent_profile = agent.get("profile", {}) if agent else {}
+    return result
+
+
+async def _notify_group_members(group_id: str, new_member_id: str, new_agent: dict | None, group_name: str):
+    """Background task to notify group members about new agent."""
+    try:
+        existing_members = db.get_group_members(group_id)
+        existing_agents = [m for m in existing_members if m["member_type"] == "agent" and m["member_id"] != new_member_id]
+
+        agent_profile = new_agent.get("profile", {}) if new_agent else {}
         profile_info = []
         if agent_profile.get("name"):
             profile_info.append(f"姓名: {agent_profile['name']}")
@@ -1651,28 +1658,25 @@ async def add_group_member(group_id: str, member: GroupMemberAdd):
         if agent_profile.get("background"):
             profile_info.append(f"背景: {agent_profile['background']}")
 
-        agent_name = agent_profile.get("nickname") or agent_profile.get("name") or member.member_id
+        agent_name = agent_profile.get("nickname") or agent_profile.get("name") or new_member_id
         profile_text = "\n".join(profile_info) if profile_info else "暂无详细信息"
 
         system_content = f"[系统消息] 新成员加入群聊\n{agent_name} 加入了群聊。\n\n成员信息:\n{profile_text}"
 
-        # Save as hidden system message (not displayed to users)
         db.add_group_message(
             group_id,
             "system",
             "system",
             system_content,
-            metadata={"hidden": True, "type": "member_joined", "member_id": member.member_id, "member_type": "agent"}
+            metadata={"hidden": True, "type": "member_joined", "member_id": new_member_id, "member_type": "agent"}
         )
 
-        # Notify existing agents about the new member
         if existing_agents:
             for existing_agent in existing_agents:
                 try:
                     agent_id = existing_agent["member_id"]
                     agent_runtime = await get_agent_runtime(agent_id)
 
-                    # Build context with recent messages
                     recent_messages = db.get_group_messages(group_id, limit=10)
                     context_lines = []
                     for m in recent_messages:
@@ -1686,44 +1690,48 @@ async def add_group_member(group_id: str, member: GroupMemberAdd):
                                     sender_name = agent_info["profile"]["name"]
                             context_lines.append(f"{sender_name}: {m['content']}")
 
-                    # Non-streaming notification
+                    agent_info = db.get_agent(agent_id)
+                    agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
+                    identity_reminder = f"""
+
+IMPORTANT - GROUP CHAT IDENTITY REMINDER:
+- You are {agent_name} (agent_id: {agent_id})
+- Only respond as yourself ({agent_name})
+- Do NOT pretend to be or speak for any other person in the chat"""
+
+                    if agent_info and agent_info.get("user_id"):
+                        related_user_id = agent_info["user_id"]
+                        related_user = db.get_user(related_user_id)
+                        relation = agent_info.get("relation", "")
+                        if related_user:
+                            related_user_name = related_user.get("profile", {}).get("name", related_user_id)
+                            relation_map = {
+                                "friend": "朋友",
+                                "best_friend": "最好的朋友",
+                                "partner": "情侣/伴侣",
+                                "assistant": "助手",
+                                "mentor": "导师",
+                                "student": "学生",
+                                "colleague": "同事",
+                                "family": "家人",
+                            }
+                            relation_label = relation_map.get(relation, relation)
+                            identity_reminder += f"\n- {related_user_name} ({related_user_id}) is your {relation_label}"
+
                     response = await agent_runtime.llm.chat([
-                        {"role": "system", "content": await agent_runtime._build_system_prompt()},
-                        {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n以下是群聊消息记录:\n" + "\n".join(context_lines)},
+                        {"role": "system", "content": await agent_runtime._build_system_prompt() + identity_reminder},
+                        {"role": "user", "content": f"[群聊: {group_name}]\n以下是群聊消息记录:\n" + "\n".join(context_lines) + "\n\n请以你自己的身份回复，不要扮演其他人。"},
                     ])
 
-                    # Only save if the agent actually said something meaningful
                     if response and len(response.strip()) > 5 and "不需要" not in response and "不回复" not in response:
                         db.add_group_message(group_id, agent_id, "agent", response)
-                        logger.info(f"Agent {agent_id} welcomed new member {member.member_id}")
-
-                        # Notify other agents (including the new one) about this welcome message
-                        all_members = db.get_group_members(group_id)
-                        other_agents = [m for m in all_members if m["member_type"] == "agent" and m["member_id"] != agent_id]
-
-                        for other_agent in other_agents:
-                            try:
-                                other_runtime = await get_agent_runtime(other_agent["member_id"])
-                                sender_agent = db.get_agent(agent_id)
-                                sender_name = sender_agent.get("profile", {}).get("name", agent_id) if sender_agent else agent_id
-
-                                # Build updated context with the welcome message
-                                updated_context = context_lines + [f"{sender_name}: {response}"]
-
-                                other_response = await other_runtime.llm.chat([
-                                    {"role": "system", "content": await other_runtime._build_system_prompt()},
-                                    {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n以下是群聊消息记录:\n" + "\n".join(updated_context)},
-                                ])
-
-                                if other_response and len(other_response.strip()) > 5 and "不需要" not in other_response and "不回复" not in other_response:
-                                    db.add_group_message(group_id, other_agent["member_id"], "agent", other_response)
-                            except Exception as e:
-                                logger.error(f"Error notifying other agent {other_agent['member_id']}: {e}")
+                        logger.info(f"Agent {agent_id} welcomed new member {new_member_id}")
 
                 except Exception as e:
                     logger.error(f"Error notifying agent {existing_agent['member_id']}: {e}")
 
-    return result
+    except Exception as e:
+        logger.error(f"Error in background notification task: {e}")
 
 
 @app.delete("/api/groups/{group_id}/members/{member_id}")
@@ -1771,36 +1779,71 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
         return {"status": "sent"}
 
     if message.stream:
+        # Build context ONCE before the loop, to avoid duplicate messages
+        recent_messages = db.get_group_messages(group_id, limit=20)
+        context_lines = []
+        for m in recent_messages[:-1]:  # Exclude the just-sent message
+            if m["sender_type"] == "system":
+                context_lines.append(f"[系统] {m['content']}")
+            else:
+                sender_name = m["sender_id"]
+                if m["sender_type"] == "agent":
+                    agent_info = db.get_agent(m["sender_id"])
+                    if agent_info and agent_info.get("profile", {}).get("name"):
+                        sender_name = agent_info["profile"]["name"]
+                elif m["sender_type"] == "user":
+                    user_info = db.get_user(m["sender_id"])
+                    if user_info and user_info.get("profile", {}).get("name"):
+                        sender_name = user_info["profile"]["name"]
+                context_lines.append(f"{sender_name}: {m['content']}")
+        
+        # Add the new message
+        context_lines.append(prompt_suffix)
+        base_context = "\n".join(context_lines)
+        
         async def generate():
+            responded_agents = set()
             for agent_member in target_agents:
                 agent_id = agent_member["member_id"]
+                if agent_id in responded_agents:
+                    continue
                 try:
                     agent_runtime = await get_agent_runtime(agent_id)
 
-                    # Build context for group chat (include hidden system messages for context)
-                    recent_messages = db.get_group_messages(group_id, limit=20)
+                    # Get agent's display name
+                    agent_info = db.get_agent(agent_id)
+                    agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
+                    
+                    # Build identity reminder for group chat
+                    identity_reminder = f"""
 
-                    # Format messages including hidden system messages
-                    context_lines = []
-                    for m in recent_messages[:-1]:  # Exclude the just-sent message
-                        if m["sender_type"] == "system":
-                            # System messages (like member joined) - include for context
-                            context_lines.append(f"[系统] {m['content']}")
-                        else:
-                            sender_name = m["sender_id"]
-                            # Try to get display name
-                            if m["sender_type"] == "agent":
-                                agent_info = db.get_agent(m["sender_id"])
-                                if agent_info and agent_info.get("profile", {}).get("name"):
-                                    sender_name = agent_info["profile"]["name"]
-                            elif m["sender_type"] == "user":
-                                user_info = db.get_user(m["sender_id"])
-                                if user_info and user_info.get("profile", {}).get("name"):
-                                    sender_name = user_info["profile"]["name"]
-                            context_lines.append(f"{sender_name}: {m['content']}")
+IMPORTANT - GROUP CHAT IDENTITY REMINDER:
+- You are {agent_name} (agent_id: {agent_id})
+- You are participating in a group chat with multiple members
+- Only respond as yourself ({agent_name})
+- Do NOT pretend to be or speak for any other person in the chat
+- Base your response on the actual message history above
+- Do not make up facts about what others said or did"""
 
-                    # Add the new message with sender name
-                    context_lines.append(prompt_suffix)
+                    # Add relationship context if agent has a user
+                    if agent_info and agent_info.get("user_id"):
+                        related_user_id = agent_info["user_id"]
+                        related_user = db.get_user(related_user_id)
+                        relation = agent_info.get("relation", "")
+                        if related_user:
+                            related_user_name = related_user.get("profile", {}).get("name", related_user_id)
+                            relation_map = {
+                                "friend": "朋友",
+                                "best_friend": "最好的朋友",
+                                "partner": "情侣/伴侣",
+                                "assistant": "助手",
+                                "mentor": "导师",
+                                "student": "学生",
+                                "colleague": "同事",
+                                "family": "家人",
+                            }
+                            relation_label = relation_map.get(relation, relation)
+                            identity_reminder += f"\n- {related_user_name} ({related_user_id}) is your {relation_label}"
 
                     # Yield agent response marker
                     yield f"data: __AGENT_START__{json.dumps({'agent_id': agent_id}, ensure_ascii=False)}__AGENT_END__\n\n"
@@ -1808,8 +1851,8 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
                     # Stream the agent's response
                     response_text = ""
                     async for chunk in agent_runtime.llm.chat_stream([
-                        {"role": "system", "content": await agent_runtime._build_system_prompt()},
-                        {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n以下是群聊消息记录:\n" + "\n".join(context_lines)},
+                        {"role": "system", "content": await agent_runtime._build_system_prompt() + identity_reminder},
+                        {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n以下是群聊消息记录:\n" + base_context + "\n\n请以你自己的身份回复，不要扮演其他人。"},
                     ]):
                         response_text += chunk
                         yield f"data: {chunk}\n\n"
@@ -1817,6 +1860,7 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
                     # Save agent's response
                     if response_text.strip():
                         db.add_group_message(group_id, agent_id, "agent", response_text)
+                        responded_agents.add(agent_id)
 
                     # Yield agent end marker
                     yield f"data: __AGENT_END__{json.dumps({'agent_id': agent_id}, ensure_ascii=False)}__AGENT_END__\n\n"
@@ -1827,37 +1871,70 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
         return StreamingResponse(generate(), media_type="text/event-stream")
     else:
         # Non-streaming: collect all responses
+        # Build context ONCE before the loop
+        recent_messages = db.get_group_messages(group_id, limit=20)
+        context_lines = []
+        for m in recent_messages[:-1]:
+            if m["sender_type"] == "system":
+                context_lines.append(f"[系统] {m['content']}")
+            else:
+                sender_name = m["sender_id"]
+                if m["sender_type"] == "agent":
+                    agent_info = db.get_agent(m["sender_id"])
+                    if agent_info and agent_info.get("profile", {}).get("name"):
+                        sender_name = agent_info["profile"]["name"]
+                elif m["sender_type"] == "user":
+                    user_info = db.get_user(m["sender_id"])
+                    if user_info and user_info.get("profile", {}).get("name"):
+                        sender_name = user_info["profile"]["name"]
+                context_lines.append(f"{sender_name}: {m['content']}")
+        
+        context_lines.append(prompt_suffix)
+        base_context = "\n".join(context_lines)
+        
         responses = []
         for agent_member in target_agents:
             agent_id = agent_member["member_id"]
             try:
                 agent_runtime = await get_agent_runtime(agent_id)
 
-                recent_messages = db.get_group_messages(group_id, limit=20)
+                # Get agent's display name
+                agent_info = db.get_agent(agent_id)
+                agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
 
-                # Format messages including hidden system messages for context
-                context_lines = []
-                for m in recent_messages[:-1]:
-                    if m["sender_type"] == "system":
-                        context_lines.append(f"[系统] {m['content']}")
-                    else:
-                        sender_name = m["sender_id"]
-                        if m["sender_type"] == "agent":
-                            agent_info = db.get_agent(m["sender_id"])
-                            if agent_info and agent_info.get("profile", {}).get("name"):
-                                sender_name = agent_info["profile"]["name"]
-                        elif m["sender_type"] == "user":
-                            user_info = db.get_user(m["sender_id"])
-                            if user_info and user_info.get("profile", {}).get("name"):
-                                sender_name = user_info["profile"]["name"]
-                        context_lines.append(f"{sender_name}: {m['content']}")
+                # Build identity reminder for group chat
+                identity_reminder = f"""
 
-                # Add the new message with sender name
-                context_lines.append(prompt_suffix)
+IMPORTANT - GROUP CHAT IDENTITY REMINDER:
+- You are {agent_name} (agent_id: {agent_id})
+- You are participating in a group chat with multiple members
+- Only respond as yourself ({agent_name})
+- Do NOT pretend to be or speak for any other person in the chat
+- Base your response on the actual message history above
+- Do not make up facts about what others said or did"""
+
+                if agent_info and agent_info.get("user_id"):
+                    related_user_id = agent_info["user_id"]
+                    related_user = db.get_user(related_user_id)
+                    relation = agent_info.get("relation", "")
+                    if related_user:
+                        related_user_name = related_user.get("profile", {}).get("name", related_user_id)
+                        relation_map = {
+                            "friend": "朋友",
+                            "best_friend": "最好的朋友",
+                            "partner": "情侣/伴侣",
+                            "assistant": "助手",
+                            "mentor": "导师",
+                            "student": "学生",
+                            "colleague": "同事",
+                            "family": "家人",
+                        }
+                        relation_label = relation_map.get(relation, relation)
+                        identity_reminder += f"\n- {related_user_name} ({related_user_id}) is your {relation_label}"
 
                 response = await agent_runtime.llm.chat([
-                    {"role": "system", "content": await agent_runtime._build_system_prompt()},
-                    {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n以下是群聊消息记录:\n" + "\n".join(context_lines)},
+                    {"role": "system", "content": await agent_runtime._build_system_prompt() + identity_reminder},
+                    {"role": "user", "content": f"[群聊: {group.get('name', group_id)}]\n以下是群聊消息记录:\n" + base_context + "\n\n请以你自己的身份回复，不要扮演其他人。"},
                 ])
 
                 # Save agent's response
