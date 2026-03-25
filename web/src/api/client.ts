@@ -122,13 +122,13 @@ export async function getAgent(agentId: string): Promise<Agent> {
 }
 
 export async function createAgent(data: {
-  agent_id: string;
+  agent_id?: string;
   model: string;
   provider: string;
   profile?: AgentProfile;
   user_id?: string;
   relation?: string;
-}): Promise<void> {
+}): Promise<{ agent_id: string; status: string }> {
   const res = await fetch(`${API_BASE}/api/agents`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -138,6 +138,7 @@ export async function createAgent(data: {
     const err = await res.json();
     throw new Error(err.detail || 'Failed to create agent');
   }
+  return res.json();
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {
@@ -172,9 +173,9 @@ export async function getUser(userId: string): Promise<User> {
 }
 
 export async function createUser(data: {
-  user_id: string;
+  user_id?: string;
   profile?: UserProfile;
-}): Promise<void> {
+}): Promise<{ user_id: string; status: string }> {
   const res = await fetch(`${API_BASE}/api/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -184,6 +185,7 @@ export async function createUser(data: {
     const err = await res.json();
     throw new Error(err.detail || 'Failed to create user');
   }
+  return res.json();
 }
 
 export async function updateUser(userId: string, profile: UserProfile): Promise<void> {
@@ -633,11 +635,11 @@ export async function getGroups(): Promise<Group[]> {
   return res.json();
 }
 
-export async function createGroup(groupId: string, name?: string): Promise<Group> {
+export async function createGroup(name?: string): Promise<Group> {
   const res = await fetch(`${API_BASE}/api/groups`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ group_id: groupId, name }),
+    body: JSON.stringify({ name }),
   });
   if (!res.ok) {
     const err = await res.json();

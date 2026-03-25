@@ -126,7 +126,6 @@ export function Agents() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [formData, setFormData] = useState({
-    agent_id: '',
     provider: '',
     model: '',
     profile: { ...defaultProfile },
@@ -176,10 +175,6 @@ export function Agents() {
   const selectedProvider = providers.find((p) => p.name === formData.provider);
 
   const handleCreate = async () => {
-    if (!formData.agent_id.trim()) {
-      showToast('请输入 Agent ID', 'error');
-      return;
-    }
     if (!formData.provider) {
       showToast('请选择 Provider', 'error');
       return;
@@ -194,8 +189,7 @@ export function Agents() {
         height: formData.profile.height ? parseInt(formData.profile.height) : null,
         weight: formData.profile.weight ? parseInt(formData.profile.weight) : null,
       };
-      await api.createAgent({
-        agent_id: formData.agent_id.trim(),
+      const result = await api.createAgent({
         provider: formData.provider,
         model: formData.model,
         profile: profileData,
@@ -205,13 +199,13 @@ export function Agents() {
       
       if (avatarFile) {
         try {
-          await api.uploadAvatar('agent', formData.agent_id.trim(), avatarFile);
+          await api.uploadAvatar('agent', result.agent_id, avatarFile);
         } catch {
           showToast('Agent 已创建，但头像上传失败', 'error');
         }
       }
       
-      setFormData({ agent_id: '', provider: '', model: '', profile: { ...defaultProfile }, user_id: '', relation: '' });
+      setFormData({ provider: '', model: '', profile: { ...defaultProfile }, user_id: '', relation: '' });
       setAvatarFile(null);
       setAvatarPreview('');
       setShowForm(false);
@@ -442,21 +436,7 @@ export function Agents() {
                   />
                 </label>
               </div>
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                    Agent ID <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="输入唯一标识符"
-                    value={formData.agent_id}
-                    onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                      rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                      focus:border-[var(--color-accent)] transition-all"
-                  />
-                </div>
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
                     Provider <span className="text-red-500">*</span>

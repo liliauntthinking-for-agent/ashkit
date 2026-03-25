@@ -47,7 +47,6 @@ export function Groups() {
   const [loading, setLoading] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
-  const [newGroupId, setNewGroupId] = useState('');
   const [newGroupName, setNewGroupName] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [firstMessageId, setFirstMessageId] = useState<number | null>(null);
@@ -166,16 +165,10 @@ export function Groups() {
   }, [hasMore, loadingMore, messages.length, handleLoadMore]);
 
   const handleCreateGroup = async () => {
-    if (!newGroupId.trim()) {
-      showToast('请输入群组ID', 'error');
-      return;
-    }
-
     try {
-      const group = await api.createGroup(newGroupId.trim(), newGroupName.trim() || undefined);
+      const group = await api.createGroup(newGroupName.trim() || undefined);
       setGroups(prev => [...prev, group]);
       setShowNewGroup(false);
-      setNewGroupId('');
       setNewGroupName('');
       setSelectedGroup(group.group_id);
       showToast('群组已创建');
@@ -475,19 +468,6 @@ export function Groups() {
                 </div>
 
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                      群组ID
-                    </label>
-                    <input
-                      type="text"
-                      value={newGroupId}
-                      onChange={(e) => setNewGroupId(e.target.value)}
-                      placeholder="输入群组ID"
-                      className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                        rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20"
-                    />
-                  </div>
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
                       群组名称（可选）

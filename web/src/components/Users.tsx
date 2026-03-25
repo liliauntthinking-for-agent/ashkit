@@ -98,7 +98,6 @@ export function Users() {
   const showToast = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [formData, setFormData] = useState({
-    user_id: '',
     profile: { ...defaultProfile },
   });
   const [showForm, setShowForm] = useState(false);
@@ -123,30 +122,25 @@ export function Users() {
   }, [loadData]);
 
   const handleCreate = async () => {
-    if (!formData.user_id.trim()) {
-      showToast('请输入用户 ID', 'error');
-      return;
-    }
     try {
       const profileData = {
         ...formData.profile,
         height: formData.profile.height ? parseInt(formData.profile.height) : null,
         weight: formData.profile.weight ? parseInt(formData.profile.weight) : null,
       };
-      await api.createUser({
-        user_id: formData.user_id.trim(),
+      const result = await api.createUser({
         profile: profileData,
       });
       
       if (avatarFile) {
         try {
-          await api.uploadAvatar('user', formData.user_id.trim(), avatarFile);
+          await api.uploadAvatar('user', result.user_id, avatarFile);
         } catch {
           showToast('用户已创建，但头像上传失败', 'error');
         }
       }
       
-      setFormData({ user_id: '', profile: { ...defaultProfile } });
+      setFormData({ profile: { ...defaultProfile } });
       setAvatarFile(null);
       setAvatarPreview('');
       setShowForm(false);
@@ -289,20 +283,6 @@ export function Users() {
                     }}
                   />
                 </label>
-              </div>
-              <div className="flex-1 max-w-xs">
-                <label className="block text-sm font-medium text-[var(--color-accent)] mb-2">
-                  用户 ID <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="输入唯一标识符"
-                  value={formData.user_id}
-                  onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]
-                    rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-                    focus:border-[var(--color-accent)] transition-all"
-                />
               </div>
             </div>
           </div>

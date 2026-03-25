@@ -1,6 +1,7 @@
 import json
 import random
 import tiktoken
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -111,7 +112,7 @@ class UserProfile(BaseModel):
 
 
 class AgentCreate(BaseModel):
-    agent_id: str
+    agent_id: str | None = None
     model: str
     provider: str
     profile: AgentProfile | None = None
@@ -127,7 +128,7 @@ class AgentUpdate(BaseModel):
 
 
 class UserCreate(BaseModel):
-    user_id: str
+    user_id: str | None = None
     profile: UserProfile | None = None
 
 
@@ -179,7 +180,7 @@ class HeartbeatConfig(BaseModel):
 
 
 class GroupCreate(BaseModel):
-    group_id: str
+    group_id: str | None = None
     name: str | None = None
 
 
@@ -383,7 +384,8 @@ async def list_agents():
 
 @app.post("/api/agents")
 async def create_agent(agent: AgentCreate):
-    if db.get_agent(agent.agent_id):
+    agent_id = agent.agent_id or str(uuid.uuid4())[:8]
+    if db.get_agent(agent_id):
         raise HTTPException(status_code=400, detail="Agent already exists")
 
     providers = config.get("providers", {})
@@ -395,9 +397,9 @@ async def create_agent(agent: AgentCreate):
         raise HTTPException(status_code=400, detail=f"Model '{agent.model}' not found in provider '{agent.provider}'")
 
     profile_dict = agent.profile.model_dump() if agent.profile else None
-    db.create_agent(agent.agent_id, agent.provider, agent.model, profile_dict, agent.user_id, agent.relation)
+    db.create_agent(agent_id, agent.provider, agent.model, profile_dict, agent.user_id, agent.relation)
     
-    return {"agent_id": agent.agent_id, "status": "active"}
+    return {"agent_id": agent_id, "status": "active"}
 
 
 @app.get("/api/agents/{agent_id}")
@@ -459,13 +461,14 @@ async def list_users():
 
 @app.post("/api/users")
 async def create_user(user: UserCreate):
-    if db.get_user(user.user_id):
+    user_id = user.user_id or str(uuid.uuid4())[:8]
+    if db.get_user(user_id):
         raise HTTPException(status_code=400, detail="User already exists")
     
     profile_dict = user.profile.model_dump() if user.profile else None
-    db.create_user(user.user_id, profile_dict)
+    db.create_user(user_id, profile_dict)
     
-    return {"user_id": user.user_id, "status": "created"}
+    return {"user_id": user_id, "status": "created"}
 
 
 @app.get("/api/users/{user_id}")
@@ -1513,10 +1516,11 @@ async def list_groups():
 @app.post("/api/groups")
 async def create_group(group: GroupCreate):
     """Create a new group"""
-    existing = db.get_group(group.group_id)
+    group_id = group.group_id or str(uuid.uuid4())[:8]
+    existing = db.get_group(group_id)
     if existing:
         raise HTTPException(status_code=400, detail="Group already exists")
-    return db.create_group(group.group_id, group.name)
+    return db.create_group(group_id, group.name)
 
 
 @app.get("/api/groups/{group_id}")
