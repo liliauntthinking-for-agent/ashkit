@@ -99,7 +99,13 @@ export function Settings() {
         Array.from(selectedUsers),
         importOverwrite
       );
-      showToast(`导入成功: ${result.providers} 个提供商, ${result.agents} 个 Agent, ${result.users} 个用户`);
+      
+      let message = `导入完成: ${result.providers} 个提供商, ${result.agents} 个 Agent, ${result.users} 个用户`;
+      if (result.skipped > 0) {
+        const details = result.skipped_items.map(item => `${item.name}(${item.reason})`).join(', ');
+        message += `, 跳过 ${result.skipped} 项: ${details}`;
+      }
+      showToast(message, result.skipped > 0 ? 'warning' : 'success');
       setShowImportModal(false);
       setImportData(null);
       setImportPreview(null);

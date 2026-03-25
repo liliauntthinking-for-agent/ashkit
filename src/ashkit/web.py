@@ -1407,7 +1407,7 @@ async def import_execute(request: ImportExecuteRequest):
     selected_users = set(request.users)
     overwrite = request.overwrite
     
-    result = {"providers": 0, "agents": 0, "users": 0, "skipped": 0}
+    result = {"providers": 0, "agents": 0, "users": 0, "skipped": 0, "skipped_items": []}
     
     existing_providers = config.get("providers", {})
     
@@ -1417,6 +1417,7 @@ async def import_execute(request: ImportExecuteRequest):
         
         if name in existing_providers and not overwrite:
             result["skipped"] += 1
+            result["skipped_items"].append({"type": "provider", "name": name, "reason": "已存在"})
             continue
         
         existing_providers[name] = cfg
@@ -1433,6 +1434,7 @@ async def import_execute(request: ImportExecuteRequest):
         existing = db.get_user(user_id)
         if existing and not overwrite:
             result["skipped"] += 1
+            result["skipped_items"].append({"type": "user", "name": user_id, "reason": "已存在"})
             continue
         
         profile = user_data.get("profile")
@@ -1453,15 +1455,18 @@ async def import_execute(request: ImportExecuteRequest):
         
         if not provider or not model:
             result["skipped"] += 1
+            result["skipped_items"].append({"type": "agent", "name": agent_id, "reason": "缺少 provider 或 model"})
             continue
         
         existing = db.get_agent(agent_id)
         if existing and not overwrite:
             result["skipped"] += 1
+            result["skipped_items"].append({"type": "agent", "name": agent_id, "reason": "已存在"})
             continue
         
         if provider not in providers:
             result["skipped"] += 1
+            result["skipped_items"].append({"type": "agent", "name": agent_id, "reason": f"提供商 {provider} 不存在"})
             continue
         
         profile = agent_data.get("profile")

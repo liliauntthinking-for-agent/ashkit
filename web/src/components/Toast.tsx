@@ -1,15 +1,15 @@
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, Warning } from '@phosphor-icons/react';
+import { CheckCircle, Warning, WarningCircle } from '@phosphor-icons/react';
 
 interface Toast {
   id: number;
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'warning';
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: 'success' | 'error') => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -19,7 +19,7 @@ let toastId = 0;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     const id = ++toastId;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
@@ -44,14 +44,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 text-sm font-medium shadow-lg
                 ${toast.type === 'success' 
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                  : toast.type === 'warning'
+                  ? 'bg-amber-50 text-amber-700 border border-amber-100'
                   : 'bg-red-50 text-red-700 border border-red-100'
                 }
               `}
             >
               {toast.type === 'success' ? (
                 <CheckCircle className="w-4 h-4" weight="duotone" />
-              ) : (
+              ) : toast.type === 'warning' ? (
                 <Warning className="w-4 h-4" weight="duotone" />
+              ) : (
+                <WarningCircle className="w-4 h-4" weight="duotone" />
               )}
               {toast.message}
             </motion.div>

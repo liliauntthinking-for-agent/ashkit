@@ -589,7 +589,7 @@ export async function importExecute(
   agents: string[],
   users: string[],
   overwrite: boolean
-): Promise<{ providers: number; agents: number; users: number; skipped: number }> {
+): Promise<{ providers: number; agents: number; users: number; skipped: number; skipped_items: { type: string; name: string; reason: string }[] }> {
   const res = await fetch(`${API_BASE}/api/import/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
