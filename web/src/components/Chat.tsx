@@ -632,6 +632,7 @@ export function Chat() {
               messagesMapRef.current.set(sessionId, [...updated]);
               if (selectedSessionRef.current === sessionId) {
                 setMessages([...updated]);
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
               }
             }
           } else if (event.type === 'content' && event.content) {
@@ -646,10 +647,10 @@ export function Chat() {
               messagesMapRef.current.set(sessionId, [...updated]);
               if (selectedSessionRef.current === sessionId) {
                 setMessages([...updated]);
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
               }
             }
           } else if (event.type === 'tool_start' && event.tools) {
-            // Add new tool calls to timeline
             for (const t of event.tools) {
               let formattedArgs = t.args;
               try {
@@ -676,10 +677,10 @@ export function Chat() {
               messagesMapRef.current.set(sessionId, [...updated]);
               if (selectedSessionRef.current === sessionId) {
                 setMessages([...updated]);
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
               }
             }
           } else if (event.type === 'tool_result' && event.toolResult) {
-            // Find the last pending tool with matching name
             let foundIdx = -1;
             for (let i = timeline.length - 1; i >= 0; i--) {
               const evt = timeline[i];
@@ -715,6 +716,7 @@ export function Chat() {
                 messagesMapRef.current.set(sessionId, [...updated]);
                 if (selectedSessionRef.current === sessionId) {
                   setMessages([...updated]);
+                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
                 }
               }
             }
