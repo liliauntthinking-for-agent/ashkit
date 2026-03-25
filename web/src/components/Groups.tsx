@@ -141,6 +141,17 @@ export function Groups() {
     }
   }, [selectedGroup, loadGroupData]);
 
+  useEffect(() => {
+    if (!selectedGroup) return;
+
+    const interval = setInterval(() => {
+      if (streamingAgents.size > 0) return;
+      loadGroupData(selectedGroup);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [selectedGroup, streamingAgents.size, loadGroupData]);
+
   const handleLoadMore = useCallback(async () => {
     if (!selectedGroup || loadingMore || !hasMore || !firstMessageId) return;
 
