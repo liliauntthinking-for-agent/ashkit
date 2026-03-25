@@ -199,6 +199,7 @@ class Database:
         conn = self._get_conn()
         conn.execute("DELETE FROM messages WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id = ?)", (agent_id,))
         conn.execute("DELETE FROM sessions WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM group_members WHERE member_id = ? AND member_type = 'agent'", (agent_id,))
         conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
         affected = conn.total_changes
         conn.commit()

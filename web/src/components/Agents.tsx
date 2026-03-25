@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check, Heart, Play, Clock, Scroll, Camera } from '@phosphor-icons/react';
+import { Cube, Plus, Circle, User, IdentificationBadge, Users, PencilSimple, Check, Heart, Play, Clock, Scroll, Camera, Trash } from '@phosphor-icons/react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale/zh-CN';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -345,6 +345,23 @@ export function Agents() {
       const logsData = await api.getHeartbeatLogs(selectedAgent.agent_id);
       setHeartbeatLogs(logsData.logs);
       setShowHeartbeatLogs(true);
+    } catch (e: unknown) {
+      const error = e as Error;
+      showToast(error.message, 'error');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedAgent) return;
+    if (!confirm(`确定要删除 Agent "${selectedAgent.profile?.name || selectedAgent.agent_id}" 吗？\n\n这将删除所有相关的会话记录，并从所有群聊中退出。`)) {
+      return;
+    }
+    try {
+      await api.deleteAgent(selectedAgent.agent_id);
+      setShowDetail(false);
+      setSelectedAgent(null);
+      loadData();
+      showToast('删除成功');
     } catch (e: unknown) {
       const error = e as Error;
       showToast(error.message, 'error');
@@ -1030,16 +1047,28 @@ export function Agents() {
               </div>
               <div className="flex items-center gap-2">
                 {!isEditing && (
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleEdit}
-                    className="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent)] text-white 
-                      rounded-lg font-medium text-sm"
-                  >
-                    <PencilSimple className="w-4 h-4" weight="bold" />
-                    编辑
-                  </motion.button>
+                  <>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleEdit}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent)] text-white 
+                        rounded-lg font-medium text-sm"
+                    >
+                      <PencilSimple className="w-4 h-4" weight="bold" />
+                      编辑
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleDelete}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white 
+                        rounded-lg font-medium text-sm"
+                    >
+                      <Trash className="w-4 h-4" weight="bold" />
+                      删除
+                    </motion.button>
+                  </>
                 )}
                 <button
                   onClick={() => {
