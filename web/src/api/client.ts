@@ -751,9 +751,9 @@ export async function* streamGroupMessage(
               } catch {}
             }
           } else if (data.startsWith('__AGENT_END__')) {
-            const endIdx = data.indexOf('__AGENT_END__', 12);
+            const endIdx = data.indexOf('__AGENT_END__', 13);
             if (endIdx !== -1) {
-              const jsonStr = data.slice(12, endIdx);
+              const jsonStr = data.slice(13, endIdx);
               try {
                 const parsed = JSON.parse(jsonStr);
                 yield { type: 'agent_end', agent_id: parsed.agent_id };
