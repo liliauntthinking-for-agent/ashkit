@@ -770,7 +770,12 @@ export async function* streamGroupMessage(
               } catch {}
             }
           } else if (data) {
-            yield { type: 'content', content: data };
+            try {
+              const parsed = JSON.parse(data);
+              yield { type: 'content', content: parsed };
+            } catch {
+              yield { type: 'content', content: data };
+            }
           }
         }
       }

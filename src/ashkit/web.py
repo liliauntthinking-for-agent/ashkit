@@ -2040,7 +2040,7 @@ IMPORTANT - GROUP CHAT IDENTITY REMINDER:
                             {"role": "user", "content": f"[群聊: {group_name}]\n以下是群聊消息记录:\n" + base_context + "\n\n请以你自己的身份回复，不要扮演其他人。如果想跳过不回复，请回复[PASS]。"},
                         ]):
                             response_text += chunk
-                            yield f"data: {chunk}\n\n"
+                            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
 
                         if response_text.strip() and response_text.strip() != "[PASS]":
                             db.add_group_message(group_id, agent_id, "agent", response_text)
