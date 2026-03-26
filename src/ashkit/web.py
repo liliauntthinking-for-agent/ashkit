@@ -1718,10 +1718,9 @@ async def _notify_group_members(group_id: str, new_member_id: str, new_agent: di
                     agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
                     identity_reminder = f"""
 
-IMPORTANT - GROUP CHAT IDENTITY REMINDER:
-- You are {agent_name} (agent_id: {agent_id})
-- Only respond as yourself ({agent_name})
-- Do NOT pretend to be or speak for any other person in the chat"""
+【群聊提醒】
+- 你是{agent_name}，在群里聊天
+- 只说你自己想说的话，别替别人发言"""
 
                     if agent_info and agent_info.get("user_id"):
                         related_user_id = agent_info["user_id"]
@@ -1740,11 +1739,11 @@ IMPORTANT - GROUP CHAT IDENTITY REMINDER:
                                 "family": "家人",
                             }
                             relation_label = relation_map.get(relation, relation)
-                            identity_reminder += f"\n- {related_user_name} ({related_user_id}) is your {relation_label}"
+                            identity_reminder += f"\n- {related_user_name}是你的{relation_label}"
 
                     response = await agent_runtime.llm.chat([
                         {"role": "system", "content": await agent_runtime._build_system_prompt() + identity_reminder},
-                        {"role": "user", "content": f"[群聊: {group_name}]\n以下是群聊消息记录:\n" + "\n".join(context_lines) + "\n\n请以你自己的身份回复，不要扮演其他人。"},
+                        {"role": "user", "content": f"[群聊: {group_name}]\n" + "\n".join(context_lines)},
                     ])
 
                     if response and len(response.strip()) > 5 and "不需要" not in response and "不回复" not in response:
@@ -1940,7 +1939,7 @@ IMPORTANT - GROUP CHAT IDENTITY REMINDER:
 
             response = await agent_runtime.llm.chat([
                 {"role": "system", "content": await agent_runtime._build_system_prompt() + identity_reminder},
-                {"role": "user", "content": f"[群聊: {group_name}]\n以下是群聊消息记录:\n" + base_context + "\n\n请以你自己的身份回复，不要扮演其他人。如果想跳过不回复，请回复[PASS]。"},
+                {"role": "user", "content": f"[群聊: {group_name}]\n" + base_context},
             ])
 
             if response.strip() and response.strip() != "[PASS]":
@@ -2169,15 +2168,10 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
 
                         identity_reminder = f"""
 
-IMPORTANT - GROUP CHAT IDENTITY REMINDER:
-- You are {agent_name} (agent_id: {agent_id})
-- You are participating in a group chat with multiple members
-- Only respond as yourself ({agent_name})
-- Do NOT pretend to be or speak for any other person in the chat
-- Base your response on the actual message history above
-- Do not make up facts about what others said or did
-- Keep responses concise and natural, like a real group chat
-- If you have nothing meaningful to add, respond with just "[PASS]" to skip{reply_context}"""
+【群聊提醒】
+- 你是{agent_name}，在群里聊天
+- 只说你自己想说的话，别替别人发言
+- 想说就说，不想说就回[PASS]跳过{reply_context}"""
 
                         if agent_info and agent_info.get("user_id"):
                             related_user_id = agent_info["user_id"]
@@ -2196,14 +2190,14 @@ IMPORTANT - GROUP CHAT IDENTITY REMINDER:
                                     "family": "家人",
                                 }
                                 relation_label = relation_map.get(relation, relation)
-                                identity_reminder += f"\n- {related_user_name} ({related_user_id}) is your {relation_label}"
+                                identity_reminder += f"\n- {related_user_name}是你的{relation_label}"
 
                         yield f"data: __AGENT_START__{json.dumps({'agent_id': agent_id}, ensure_ascii=False)}__AGENT_END__\n\n"
 
                         response_text = ""
                         async for chunk in agent_runtime.llm.chat_stream([
                             {"role": "system", "content": await agent_runtime._build_system_prompt() + identity_reminder},
-                            {"role": "user", "content": f"[群聊: {group_name}]\n以下是群聊消息记录:\n" + base_context + "\n\n请以你自己的身份回复，不要扮演其他人。如果想跳过不回复，请回复[PASS]。"},
+                            {"role": "user", "content": f"[群聊: {group_name}]\n" + base_context},
                         ]):
                             response_text += chunk
                             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
