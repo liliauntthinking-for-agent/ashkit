@@ -198,6 +198,9 @@ class GroupMessageSend(BaseModel):
     sender_type: str  # 'user' or 'agent'
     content: str
     stream: bool = False
+    reply_to: int | None = None  # Message ID being replied to
+    mentions: list[str] | None = None  # List of agent_ids mentioned
+    reply_info: dict | None = None  # Info about the message being replied to {sender_id, sender_type, sender_name, content}
 
 
 agents_runtime: dict[str, Any] = {}
@@ -1695,6 +1698,12 @@ async def _notify_group_members(group_id: str, new_member_id: str, new_agent: di
                     recent_messages = db.get_group_messages(group_id, limit=10)
                     context_lines = []
                     for m in recent_messages:
+                        # Skip None or hidden messages
+                        if m is None:
+                            continue
+                        metadata = m.get("metadata") or {}
+                        if metadata.get("hidden"):
+                            continue
                         if m["sender_type"] == "system":
                             context_lines.append(f"[系统] {m['content']}")
                         else:
@@ -1762,10 +1771,13 @@ MAX_CHAT_ROUNDS = 3
 CHAT_REPLY_PROBABILITY = 0.6
 
 
-def _should_agent_reply(agent_id: str, agent_name: str, message_content: str, all_agent_names: list[str]) -> bool:
-    if agent_name.lower() in message_content.lower():
+def _should_agent_reply(agent_id: str, agent_name: str, message_content: str, all_agent_names: list[str], mentioned_agent_ids: list[str] | None = None) -> bool:
+    # If agent was explicitly @mentioned, always respond
+    if mentioned_agent_ids and agent_id in mentioned_agent_ids:
         return True
     if f"@{agent_name}" in message_content or f"@{agent_id}" in message_content:
+        return True
+    if agent_name.lower() in message_content.lower():
         return True
     if "?" in message_content or "？" in message_content:
         if random.random() < CHAT_REPLY_PROBABILITY:
@@ -1785,21 +1797,40 @@ async def _run_group_chat_round(
     agent_members: list[dict],
     round_num: int,
     group_name: str,
+    mentions: list[str] | None = None,
+    reply_to: int | None = None,
 ) -> list[dict]:
     responses = []
     agent_ids_that_responded = set()
-    
-    if sender_type == "user":
+
+    # Get reply target info
+    reply_target_id = None
+    if reply_to:
+        for msg in db.get_group_messages(group_id, limit=100):
+            if msg["id"] == reply_to:
+                reply_target_id = msg["sender_id"]
+                break
+
+    # If replying to an agent, only that agent should respond in first round
+    if reply_to and reply_target_id and round_num == 0:
+        target_agents = [m for m in agent_members if m["member_id"] == reply_target_id]
+    elif sender_type == "user":
         target_agents = agent_members
     else:
         target_agents = [m for m in agent_members if m["member_id"] != sender_id]
-    
+
     if not target_agents:
         return responses
-    
+
     recent_messages = db.get_group_messages(group_id, limit=20)
     context_lines = []
     for m in recent_messages[:-1] if len(recent_messages) > 0 else recent_messages:
+        # Skip None or hidden messages
+        if m is None:
+            continue
+        m_metadata = m.get("metadata") or {}
+        if m_metadata.get("hidden"):
+            continue
         if m["sender_type"] == "system":
             context_lines.append(f"[系统] {m['content']}")
         else:
@@ -1812,7 +1843,31 @@ async def _run_group_chat_round(
                 user_info = db.get_user(m["sender_id"])
                 if user_info and user_info.get("profile", {}).get("name"):
                     m_sender_name = user_info["profile"]["name"]
-            context_lines.append(f"{m_sender_name}: {m['content']}")
+
+            # Add reply indicator
+            reply_indicator = ""
+            if m_metadata.get("reply_info"):
+                # Use stored reply_info
+                reply_info = m_metadata["reply_info"]
+                reply_indicator = f" [回复 {reply_info.get('sender_name', reply_info.get('sender_id'))}] "
+            elif m_metadata.get("reply_to"):
+                # Fall back to looking up by ID
+                reply_to_id = m_metadata["reply_to"]
+                for rm in recent_messages:
+                    if rm and rm["id"] == reply_to_id:
+                        rm_name = rm["sender_id"]
+                        if rm["sender_type"] == "agent":
+                            rm_agent = db.get_agent(rm["sender_id"])
+                            if rm_agent and rm_agent.get("profile", {}).get("name"):
+                                rm_name = rm_agent["profile"]["name"]
+                        elif rm["sender_type"] == "user":
+                            rm_user = db.get_user(rm["sender_id"])
+                            if rm_user and rm_user.get("profile", {}).get("name"):
+                                rm_name = rm_user["profile"]["name"]
+                        reply_indicator = f" [回复 {rm_name}] "
+                        break
+
+            context_lines.append(f"{m_sender_name}:{reply_indicator}{m['content']}")
     
     context_lines.append(f"{sender_name}: {content}")
     base_context = "\n".join(context_lines)
@@ -1827,18 +1882,31 @@ async def _run_group_chat_round(
         agent_id = agent_member["member_id"]
         if agent_id in agent_ids_that_responded:
             continue
-        
+
         if sender_type == "agent" and round_num > 0:
             agent_info = db.get_agent(agent_id)
             agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
-            if not _should_agent_reply(agent_id, agent_name, content, all_agent_names):
+            if not _should_agent_reply(agent_id, agent_name, content, all_agent_names, mentions):
                 continue
-        
+
         try:
             agent_runtime = await get_agent_runtime(agent_id)
             agent_info = db.get_agent(agent_id)
             agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
-            
+
+            # Get reply info from metadata for context
+            reply_context = ""
+            latest_messages = db.get_group_messages(group_id, limit=5)
+            for lm in reversed(latest_messages):
+                lm_metadata = lm.get("metadata") or {}
+                if lm_metadata.get("reply_info"):
+                    reply_info = lm_metadata["reply_info"]
+                    if reply_info.get("sender_id") == agent_id:
+                        reply_context = f"\n\n注意：用户正在回复你的消息，这是专门对你说的。"
+                    else:
+                        reply_context = f"\n\n注意：用户正在回复 {reply_info.get('sender_name', '其他人')} 的消息，是对 {reply_info.get('sender_name', '其他人')} 说的，不是对你说的。如果你没有相关的内容要补充，请回复[PASS]跳过。"
+                    break
+
             identity_reminder = f"""
 
 IMPORTANT - GROUP CHAT IDENTITY REMINDER:
@@ -1849,7 +1917,7 @@ IMPORTANT - GROUP CHAT IDENTITY REMINDER:
 - Base your response on the actual message history above
 - Do not make up facts about what others said or did
 - Keep responses concise and natural, like a real group chat
-- If you have nothing meaningful to add, respond with just "[PASS]" to skip"""
+- If you have nothing meaningful to add, respond with just "[PASS]" to skip{reply_context}"""
 
             if agent_info and agent_info.get("user_id"):
                 related_user_id = agent_info["user_id"]
@@ -1892,7 +1960,38 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
-    db.add_group_message(group_id, message.sender_id, message.sender_type, message.content)
+    # Build metadata with reply_to and mentions
+    metadata = {}
+    if message.reply_to:
+        metadata["reply_to"] = message.reply_to
+        # Use provided reply_info if available
+        if message.reply_info:
+            metadata["reply_info"] = message.reply_info
+        else:
+            # Fall back to looking up the original message
+            original_messages = db.get_group_messages(group_id, limit=100)
+            for orig_msg in original_messages:
+                if orig_msg["id"] == message.reply_to:
+                    orig_sender_name = orig_msg["sender_id"]
+                    if orig_msg["sender_type"] == "agent":
+                        orig_agent = db.get_agent(orig_msg["sender_id"])
+                        if orig_agent and orig_agent.get("profile", {}).get("name"):
+                            orig_sender_name = orig_agent["profile"]["name"]
+                    elif orig_msg["sender_type"] == "user":
+                        orig_user = db.get_user(orig_msg["sender_id"])
+                        if orig_user and orig_user.get("profile", {}).get("name"):
+                            orig_sender_name = orig_user["profile"]["name"]
+                    metadata["reply_info"] = {
+                        "sender_id": orig_msg["sender_id"],
+                        "sender_type": orig_msg["sender_type"],
+                        "sender_name": orig_sender_name,
+                        "content": orig_msg["content"][:100]  # Store truncated content
+                    }
+                    break
+    if message.mentions:
+        metadata["mentions"] = message.mentions
+
+    db.add_group_message(group_id, message.sender_id, message.sender_type, message.content, metadata if metadata else None)
 
     members = db.get_group_members(group_id)
     agent_members = [m for m in members if m["member_type"] == "agent"]
@@ -1929,6 +2028,8 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
                 agent_members=agent_members,
                 round_num=round_num,
                 group_name=group_name,
+                mentions=message.mentions,
+                reply_to=message.reply_to if round_num == 0 else None,
             )
             
             if not round_responses:
@@ -1952,22 +2053,56 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
                 agent_info = db.get_agent(m["member_id"])
                 if agent_info and agent_info.get("profile", {}).get("name"):
                     all_agent_names.append(agent_info["profile"]["name"])
-            
+
+            # Get the reply target info
+            reply_target_id = None
+            reply_target_name = None
+            if message.reply_to:
+                # Use reply_info from message if available
+                if message.reply_info:
+                    reply_target_id = message.reply_info.get("sender_id")
+                    reply_target_name = message.reply_info.get("sender_name")
+                elif metadata.get("reply_info"):
+                    reply_info = metadata["reply_info"]
+                    reply_target_id = reply_info.get("sender_id")
+                    reply_target_name = reply_info.get("sender_name")
+                else:
+                    # Fall back to looking up by message ID
+                    for msg in db.get_group_messages(group_id, limit=100):
+                        if msg["id"] == message.reply_to:
+                            reply_target_id = msg["sender_id"]
+                            if msg["sender_type"] == "agent":
+                                reply_agent = db.get_agent(reply_target_id)
+                                reply_target_name = reply_agent.get("profile", {}).get("name", reply_target_id) if reply_agent else reply_target_id
+                            elif msg["sender_type"] == "user":
+                                reply_user = db.get_user(reply_target_id)
+                                reply_target_name = reply_user.get("profile", {}).get("name", reply_target_id) if reply_user else reply_target_id
+                            break
+
             responded_agents = set()
             for round_num in range(MAX_CHAT_ROUNDS):
-                if message.sender_type == "user" and round_num == 0:
+                # If replying to an agent, only that agent should respond in first round
+                if message.reply_to and reply_target_id and round_num == 0:
+                    target_agents = [m for m in agent_members if m["member_id"] == reply_target_id]
+                elif message.sender_type == "user" and round_num == 0:
                     target_agents = agent_members
                 elif message.sender_type == "agent" and round_num == 0:
                     target_agents = [m for m in agent_members if m["member_id"] != message.sender_id]
                 else:
                     target_agents = [m for m in agent_members if m["member_id"] not in responded_agents]
-                
+
                 if not target_agents:
                     break
-                
+
                 recent_messages = db.get_group_messages(group_id, limit=20)
                 context_lines = []
                 for m in recent_messages:
+                    # Skip None or hidden messages
+                    if m is None:
+                        continue
+                    metadata = m.get("metadata") or {}
+                    if metadata.get("hidden"):
+                        continue
                     if m["sender_type"] == "system":
                         context_lines.append(f"[系统] {m['content']}")
                     else:
@@ -1980,8 +2115,32 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
                             user_info = db.get_user(m["sender_id"])
                             if user_info and user_info.get("profile", {}).get("name"):
                                 m_sender_name = user_info["profile"]["name"]
-                        context_lines.append(f"{m_sender_name}: {m['content']}")
-                
+
+                        # Add reply indicator
+                        reply_indicator = ""
+                        if metadata.get("reply_info"):
+                            # Use stored reply_info
+                            reply_info = metadata["reply_info"]
+                            reply_indicator = f" [回复 {reply_info.get('sender_name', reply_info.get('sender_id'))}] "
+                        elif metadata.get("reply_to"):
+                            # Fall back to looking up by ID
+                            reply_to_id = metadata["reply_to"]
+                            for rm in recent_messages:
+                                if rm["id"] == reply_to_id:
+                                    rm_name = rm["sender_id"]
+                                    if rm["sender_type"] == "agent":
+                                        rm_agent = db.get_agent(rm["sender_id"])
+                                        if rm_agent and rm_agent.get("profile", {}).get("name"):
+                                            rm_name = rm_agent["profile"]["name"]
+                                    elif rm["sender_type"] == "user":
+                                        rm_user = db.get_user(rm["sender_id"])
+                                        if rm_user and rm_user.get("profile", {}).get("name"):
+                                            rm_name = rm_user["profile"]["name"]
+                                    reply_indicator = f" [回复 {rm_name}] "
+                                    break
+
+                        context_lines.append(f"{m_sender_name}:{reply_indicator}{m['content']}")
+
                 base_context = "\n".join(context_lines)
                 round_responded = set()
                 
@@ -1993,14 +2152,21 @@ async def send_group_message(group_id: str, message: GroupMessageSend):
                     if message.sender_type == "agent" and round_num > 0:
                         agent_info = db.get_agent(agent_id)
                         agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
-                        if not _should_agent_reply(agent_id, agent_name, message.content if round_num == 0 else "", all_agent_names):
+                        if not _should_agent_reply(agent_id, agent_name, message.content if round_num == 0 else "", all_agent_names, message.mentions):
                             continue
                     
                     try:
                         agent_runtime = await get_agent_runtime(agent_id)
                         agent_info = db.get_agent(agent_id)
                         agent_name = agent_info.get("profile", {}).get("name", agent_id) if agent_info else agent_id
-                        
+
+                        # Build reply context
+                        reply_context = ""
+                        if message.reply_to and reply_target_id == agent_id:
+                            reply_context = f"\n\n注意：用户正在回复你的消息，这是专门对你说的。"
+                        elif message.reply_to and reply_target_id and reply_target_id != agent_id:
+                            reply_context = f"\n\n注意：用户正在回复 {reply_target_name} 的消息，是对 {reply_target_name} 说的，不是对你说的。如果你没有相关的内容要补充，请回复[PASS]跳过。"
+
                         identity_reminder = f"""
 
 IMPORTANT - GROUP CHAT IDENTITY REMINDER:
@@ -2011,7 +2177,7 @@ IMPORTANT - GROUP CHAT IDENTITY REMINDER:
 - Base your response on the actual message history above
 - Do not make up facts about what others said or did
 - Keep responses concise and natural, like a real group chat
-- If you have nothing meaningful to add, respond with just "[PASS]" to skip"""
+- If you have nothing meaningful to add, respond with just "[PASS]" to skip{reply_context}"""
 
                         if agent_info and agent_info.get("user_id"):
                             related_user_id = agent_info["user_id"]
@@ -2105,3 +2271,7 @@ def run_server(host: str = "0.0.0.0", port: int = 47291):
     import uvicorn
 
     uvicorn.run(app, host=host, port=port)
+
+
+if __name__ == "__main__":
+    run_server()

@@ -626,7 +626,12 @@ export interface GroupMessage {
   sender_id: string;
   sender_type: 'user' | 'agent';
   content: string;
-  metadata?: Record<string, any>;
+  metadata?: {
+    reply_to?: number;
+    mentions?: string[];
+    hidden?: boolean;
+    [key: string]: any;
+  };
   created_at: string;
 }
 
@@ -705,12 +710,20 @@ export async function sendGroupMessage(
   groupId: string,
   senderId: string,
   senderType: 'user' | 'agent',
-  content: string
+  content: string,
+  replyTo?: number,
+  mentions?: string[],
+  replyInfo?: { sender_id: string; sender_type: string; sender_name: string; content: string }
 ): Promise<{ status: string; responses?: { agent_id: string; response: string }[] }> {
+  const body: any = { sender_id: senderId, sender_type: senderType, content, stream: false };
+  if (replyTo) body.reply_to = replyTo;
+  if (mentions && mentions.length > 0) body.mentions = mentions;
+  if (replyInfo) body.reply_info = replyInfo;
+
   const res = await fetch(`${API_BASE}/api/groups/${groupId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sender_id: senderId, sender_type: senderType, content, stream: false }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json();
@@ -722,12 +735,20 @@ export async function sendGroupMessage(
 export async function* streamGroupMessage(
   groupId: string,
   senderId: string,
-  content: string
+  content: string,
+  replyTo?: number,
+  mentions?: string[],
+  replyInfo?: { sender_id: string; sender_type: string; sender_name: string; content: string }
 ): AsyncGenerator<{ type: 'agent_start' | 'agent_end' | 'content'; agent_id?: string; content?: string }> {
+  const body: any = { sender_id: senderId, sender_type: 'user', content, stream: true };
+  if (replyTo) body.reply_to = replyTo;
+  if (mentions && mentions.length > 0) body.mentions = mentions;
+  if (replyInfo) body.reply_info = replyInfo;
+
   const res = await fetch(`${API_BASE}/api/groups/${groupId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sender_id: senderId, sender_type: 'user', content, stream: true }),
+    body: JSON.stringify(body),
   });
 
   const reader = res.body?.getReader();

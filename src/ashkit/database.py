@@ -607,9 +607,14 @@ class Database:
         return results
 
     def get_group_message_count(self, group_id: str) -> int:
-        """Get message count for a group"""
+        """Get visible message count for a group (excludes hidden system messages)"""
         conn = self._get_conn()
-        cursor = conn.execute("SELECT COUNT(*) FROM group_messages WHERE group_id = ?", (group_id,))
+        # Exclude hidden messages (metadata contains "hidden": true)
+        # Use flexible pattern to match both "hidden": true and "hidden":true
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM group_messages WHERE group_id = ? AND (metadata IS NULL OR metadata NOT LIKE '%\"hidden\":%true%')",
+            (group_id,)
+        )
         count = cursor.fetchone()[0]
         conn.close()
         return count

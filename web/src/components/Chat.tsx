@@ -1015,7 +1015,7 @@ export function Chat() {
                             })}
                           </span>
                         )}
-                        <div className="flex items-end gap-1">
+                        <div className={`flex items-end gap-1 ${isUser ? 'flex-row-reverse' : ''}`}>
                         <div className={`
                           max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
                           ${isUser 

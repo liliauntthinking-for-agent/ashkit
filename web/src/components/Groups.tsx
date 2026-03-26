@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  Users, Plus, Trash, PaperPlaneTilt, Spinner, User, Robot, X
+  Users, Plus, Trash, PaperPlaneTilt, Spinner, User, Robot, X, ArrowBendUpLeft, ArrowUUpLeft, At, Copy
 } from '@phosphor-icons/react';
 import { useToast } from './Toast';
 import * as api from '../api/client';
@@ -59,6 +59,15 @@ export function Groups() {
   const [streamingAgents, setStreamingAgents] = useState<Set<string>>(new Set());
   const [streamingContent, setStreamingContent] = useState<Record<string, string>>({});
 
+  // Reply state
+  const [replyingTo, setReplyingTo] = useState<api.GroupMessage | null>(null);
+
+  // Mention state
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+  const [mentionStartPos, setMentionStartPos] = useState(-1);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
   const loadGroups = useCallback(async () => {
     try {
       const data = await api.getGroups();
@@ -95,7 +104,7 @@ export function Groups() {
     loadUsers();
   }, [loadGroups, loadAgents, loadUsers]);
 
-  const loadGroupData = useCallback(async (groupId: string) => {
+  const loadGroupData = useCallback(async (groupId: string, scrollToBottom: boolean = true) => {
     try {
       const data = await api.getGroup(groupId, 50);
 
@@ -126,9 +135,12 @@ export function Groups() {
       setHasMore(data.has_more);
       setFirstMessageId(data.first_id);
 
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
-      });
+      // Only scroll to bottom on initial load, not on refresh
+      if (scrollToBottom) {
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+        });
+      }
     } catch (e) {
       console.error(e);
       showToast('加载群组失败', 'error');
@@ -137,7 +149,7 @@ export function Groups() {
 
   useEffect(() => {
     if (selectedGroup) {
-      loadGroupData(selectedGroup);
+      loadGroupData(selectedGroup, true);
     }
   }, [selectedGroup, loadGroupData]);
 
@@ -146,7 +158,7 @@ export function Groups() {
 
     const interval = setInterval(() => {
       if (streamingAgents.size > 0) return;
-      loadGroupData(selectedGroup);
+      loadGroupData(selectedGroup, false); // Don't scroll on refresh
     }, 3000);
 
     return () => clearInterval(interval);
@@ -266,8 +278,26 @@ export function Groups() {
     }
 
     const message = input.trim();
+    const mentions = extractMentions(message);
+    const replyTo = replyingTo?.id;
+
     setInput('');
+    setReplyingTo(null);
     setLoading(true);
+
+    // Build metadata for user message
+    const userMetadata: any = {};
+    if (replyTo && replyingTo) {
+      userMetadata.reply_to = replyTo;
+      // Store reply info directly to avoid ID mismatch issues
+      userMetadata.reply_info = {
+        sender_id: replyingTo.sender_id,
+        sender_type: replyingTo.sender_type,
+        sender_name: getMemberInfo(replyingTo.sender_id, replyingTo.sender_type).name,
+        content: replyingTo.content.slice(0, 100) // Store truncated content
+      };
+    }
+    if (mentions.length > 0) userMetadata.mentions = mentions;
 
     // Add user message immediately
     const userMsg: api.GroupMessage = {
@@ -276,6 +306,7 @@ export function Groups() {
       sender_id: currentUserId,
       sender_type: 'user',
       content: message,
+      metadata: Object.keys(userMetadata).length > 0 ? userMetadata : undefined,
       created_at: new Date().toISOString()
     };
     setMessages(prev => [...prev, userMsg]);
@@ -285,7 +316,15 @@ export function Groups() {
       let currentStreamingAgent: string | null = null;
       const agentContents: Record<string, string> = {};
 
-      for await (const event of api.streamGroupMessage(selectedGroup, currentUserId, message)) {
+      // Build reply_info for backend
+      const replyInfoForApi = replyingTo ? {
+        sender_id: replyingTo.sender_id,
+        sender_type: replyingTo.sender_type,
+        sender_name: getMemberInfo(replyingTo.sender_id, replyingTo.sender_type).name,
+        content: replyingTo.content.slice(0, 100)
+      } : undefined;
+
+      for await (const event of api.streamGroupMessage(selectedGroup, currentUserId, message, replyTo, mentions, replyInfoForApi)) {
         if (event.type === 'agent_start' && event.agent_id) {
           const agentId = event.agent_id;
           currentStreamingAgent = agentId;
@@ -343,6 +382,120 @@ export function Groups() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  // Extract mentioned agent IDs from input text
+  const extractMentions = (text: string): string[] => {
+    const mentionedIds: string[] = [];
+    // Find all @mentions in the text
+    const mentionRegex = /@([^\s@]+)/g;
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const mentionText = match[1];
+      // Check if it matches an agent name or ID
+      const agent = members.find(m =>
+        m.type === 'agent' &&
+        (m.name === mentionText || m.id === mentionText)
+      );
+      if (agent) {
+        mentionedIds.push(agent.id);
+      }
+    }
+    return [...new Set(mentionedIds)]; // Remove duplicates
+  };
+
+  // Handle input change with @ detection
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart || 0;
+
+    // Check if we're typing a mention
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+
+    if (lastAtIndex !== -1) {
+      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+      // If no space after @, show mention picker
+      if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+        setMentionStartPos(lastAtIndex);
+        setMentionFilter(textAfterAt);
+        setShowMentionPicker(true);
+      } else {
+        setShowMentionPicker(false);
+      }
+    } else {
+      setShowMentionPicker(false);
+    }
+
+    setInput(value);
+  };
+
+  // Insert mention into input
+  const insertMention = (_agentId: string, agentName: string) => {
+    if (!inputRef.current || mentionStartPos === -1) return;
+
+    const beforeMention = input.substring(0, mentionStartPos);
+    const afterMention = input.substring(inputRef.current.selectionStart || mentionStartPos + 1);
+
+    // Insert @agentName with a space after
+    const newValue = `${beforeMention}@${agentName} ${afterMention}`;
+    setInput(newValue);
+    setShowMentionPicker(false);
+    setMentionStartPos(-1);
+
+    // Focus input and set cursor position
+    setTimeout(() => {
+      if (inputRef.current) {
+        const newCursorPos = beforeMention.length + agentName.length + 2;
+        inputRef.current.focus();
+        inputRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    }, 0);
+  };
+
+  // Handle reply click
+  const handleReplyClick = (msg: api.GroupMessage) => {
+    setReplyingTo(msg);
+  };
+
+  // Cancel reply
+  const cancelReply = () => {
+    setReplyingTo(null);
+  };
+
+  // Get reply info for a message
+  const getReplyInfo = (msg: api.GroupMessage): { sender_id: string; sender_type: 'user' | 'agent'; sender_name: string; content: string; id?: number } | null => {
+    if (!msg.metadata?.reply_to && !msg.metadata?.reply_info) return null;
+
+    // If reply_info is stored directly in metadata, use it
+    if (msg.metadata?.reply_info) {
+      return msg.metadata.reply_info;
+    }
+
+    // Fall back to looking up by ID
+    const replyMsg = messages.find(m => m.id === msg.metadata?.reply_to);
+    if (replyMsg) {
+      return {
+        sender_id: replyMsg.sender_id,
+        sender_type: replyMsg.sender_type,
+        sender_name: getMemberInfo(replyMsg.sender_id, replyMsg.sender_type).name,
+        content: replyMsg.content,
+        id: replyMsg.id
+      };
+    }
+    return null;
+  };
+
+  // Scroll to message by ID
+  const scrollToMessage = (msgId: number) => {
+    const msgElement = document.querySelector(`[data-message-id="${msgId}"]`);
+    if (msgElement) {
+      msgElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      msgElement.classList.add('ring-2', 'ring-blue-400');
+      setTimeout(() => {
+        msgElement.classList.remove('ring-2', 'ring-blue-400');
+      }, 2000);
     }
   };
 
@@ -573,14 +726,16 @@ export function Groups() {
                       const isUser = msg.sender_type === 'user';
                       const isStreaming = streamingAgents.has(msg.sender_id) && i === messages.length - 1;
                       const streamContent = streamingContent[msg.sender_id] || '';
+                      const replyInfo = getReplyInfo(msg);
 
                       return (
                         <motion.div
                           key={msg.id || i}
+                          data-message-id={msg.id}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: i * 0.02 }}
-                          className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
+                          className={`group flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
                         >
                           <div className="flex flex-col items-center gap-1">
                             <div className={`
@@ -599,9 +754,9 @@ export function Groups() {
                               {info.name}
                             </span>
                           </div>
-                          <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+                          <div className={`group flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-1`}>
                             {msg.created_at && (
-                              <span className="text-[10px] text-[var(--color-accent-muted)] mb-1">
+                              <span className="text-[10px] text-[var(--color-accent-muted)]">
                                 {new Date(msg.created_at).toLocaleString('zh-CN', {
                                   month: '2-digit',
                                   day: '2-digit',
@@ -610,41 +765,79 @@ export function Groups() {
                                 })}
                               </span>
                             )}
-                            <div className={`
-                              max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
-                              ${isUser
-                                ? 'bg-[var(--color-accent)] text-white rounded-tr-md'
-                                : 'bg-[var(--color-surface)] text-[var(--color-accent)] rounded-tl-md'
-                              }
-                            `}>
-                              {isUser ? (
-                                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                              ) : (
-                                <div className="prose prose-sm max-w-none">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {isStreaming ? streamContent || msg.content : msg.content}
-                                  </ReactMarkdown>
-                                  {isStreaming && !streamContent && (
-                                    <div className="flex items-center gap-1 mt-2">
-                                      <motion.span
-                                        animate={{ opacity: [0.4, 1, 0.4] }}
-                                        transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
-                                        className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
-                                      />
-                                      <motion.span
-                                        animate={{ opacity: [0.4, 1, 0.4] }}
-                                        transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
-                                        className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
-                                      />
-                                      <motion.span
-                                        animate={{ opacity: [0.4, 1, 0.4] }}
-                                        transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
-                                        className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                              )}
+                            <div className={`flex items-end gap-1 ${isUser ? 'flex-row-reverse' : ''}`}>
+                              <div className={`
+                                max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed
+                                ${isUser
+                                  ? 'bg-[var(--color-accent)] text-white rounded-tr-md'
+                                  : 'bg-[var(--color-surface)] text-[var(--color-accent)] rounded-tl-md'
+                                }
+                              `}>
+                                {/* Reply preview */}
+                                {replyInfo && (
+                                  <div
+                                    onClick={() => replyInfo.id && scrollToMessage(replyInfo.id)}
+                                    className={`mb-2 pl-2 border-l-2 cursor-pointer
+                                      ${isUser ? 'border-white/50 text-white/70' : 'border-[var(--color-accent)]/50 text-[var(--color-accent-muted)]'}
+                                    `}
+                                  >
+                                    <span className="text-xs font-medium">
+                                      {replyInfo.sender_name || getMemberInfo(replyInfo.sender_id, replyInfo.sender_type).name}
+                                    </span>
+                                    <p className="text-xs truncate max-w-[200px]">{replyInfo.content}</p>
+                                  </div>
+                                )}
+                                {isUser ? (
+                                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                                ) : (
+                                  <div className="prose prose-sm max-w-none">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                      {isStreaming ? streamContent || msg.content : msg.content}
+                                    </ReactMarkdown>
+                                    {isStreaming && !streamContent && (
+                                      <div className="flex items-center gap-1 mt-2">
+                                        <motion.span
+                                          animate={{ opacity: [0.4, 1, 0.4] }}
+                                          transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
+                                          className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                                        />
+                                        <motion.span
+                                          animate={{ opacity: [0.4, 1, 0.4] }}
+                                          transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                                          className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                                        />
+                                        <motion.span
+                                          animate={{ opacity: [0.4, 1, 0.4] }}
+                                          transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
+                                          className="w-2 h-2 rounded-full bg-[var(--color-accent-muted)]"
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {/* Action buttons */}
+                              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(msg.content);
+                                    showToast('已复制');
+                                  }}
+                                  className="p-1.5 rounded-lg hover:bg-[var(--color-surface)]
+                                    text-[var(--color-accent-muted)] hover:text-[var(--color-accent)] transition-all"
+                                  title="复制"
+                                >
+                                  <Copy className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleReplyClick(msg)}
+                                  className="p-1.5 rounded-lg hover:bg-[var(--color-surface)]
+                                    text-[var(--color-accent-muted)] hover:text-[var(--color-accent)] transition-all"
+                                  title="回复"
+                                >
+                                  <ArrowBendUpLeft className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </motion.div>
@@ -699,20 +892,80 @@ export function Groups() {
 
               {/* Input */}
               <div className="p-4 border-t border-[var(--color-border)]">
-                <div className="flex gap-3">
-                  <textarea
-                    placeholder="输入消息..."
-                    rows={1}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={loading}
-                    className="flex-1 px-4 py-3 bg-[var(--color-surface)] border border-[var(--color-border)]
-                      rounded-xl text-sm resize-none focus:outline-none focus:ring-2
-                      focus:ring-[var(--color-accent)]/20 focus:border-[var(--color-accent)]
-                      disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    style={{ minHeight: '48px', maxHeight: '120px' }}
-                  />
+                {/* Reply bar */}
+                {replyingTo && (
+                  <div className="flex items-center justify-between mb-2 px-3 py-2 bg-[var(--color-surface)] rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-[var(--color-accent-muted)]">
+                      <ArrowUUpLeft className="w-4 h-4" />
+                      <span className="font-medium">
+                        回复 {getMemberInfo(replyingTo.sender_id, replyingTo.sender_type).name}
+                      </span>
+                      <span className="truncate max-w-[200px]">{replyingTo.content}</span>
+                    </div>
+                    <button onClick={cancelReply} className="p-1 hover:bg-[var(--color-surface-elevated)] rounded">
+                      <X className="w-4 h-4 text-[var(--color-accent-muted)]" />
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex gap-3 relative">
+                  <div className="flex-1 relative">
+                    <textarea
+                      ref={inputRef}
+                      placeholder="输入消息... (@ 提及成员)"
+                      rows={1}
+                      value={input}
+                      onChange={handleInputChange}
+                      onKeyDown={handleKeyDown}
+                      disabled={loading}
+                      className="w-full px-4 py-3 bg-[var(--color-surface)] border border-[var(--color-border)]
+                        rounded-xl text-sm resize-none focus:outline-none focus:ring-2
+                        focus:ring-[var(--color-accent)]/20 focus:border-[var(--color-accent)]
+                        disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      style={{ minHeight: '48px', maxHeight: '120px' }}
+                    />
+                    {/* Mention picker */}
+                    {showMentionPicker && (
+                      <div className="absolute bottom-full left-0 mb-1 w-full max-w-[250px] bg-white rounded-lg shadow-lg border border-[var(--color-border)] overflow-hidden z-10">
+                        <div className="p-2 text-xs text-[var(--color-accent-muted)] border-b border-[var(--color-border)] flex items-center gap-1">
+                          <At className="w-3 h-3" /> 提及成员
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto">
+                          {members
+                            .filter(m =>
+                              m.type === 'agent' &&
+                              (m.name.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+                               m.id.toLowerCase().includes(mentionFilter.toLowerCase()))
+                            )
+                            .map(m => (
+                              <button
+                                key={m.id}
+                                onClick={() => insertMention(m.id, m.name)}
+                                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--color-surface)] text-left"
+                              >
+                                <div className="w-6 h-6 rounded bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center overflow-hidden">
+                                  {m.avatar ? (
+                                    <img src={m.avatar} alt={m.name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <Robot className="w-3 h-3 text-[var(--color-accent)]" weight="duotone" />
+                                  )}
+                                </div>
+                                <span className="text-sm text-[var(--color-accent)]">{m.name}</span>
+                              </button>
+                            ))}
+                          {members.filter(m =>
+                            m.type === 'agent' &&
+                            (m.name.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+                             m.id.toLowerCase().includes(mentionFilter.toLowerCase()))
+                          ).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-[var(--color-accent-muted)]">
+                              没有匹配的成员
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
